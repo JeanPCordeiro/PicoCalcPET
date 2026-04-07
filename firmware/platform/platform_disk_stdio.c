@@ -352,6 +352,10 @@ int ftruncate(int fd, off_t length)
 {
     (void)fd;
     (void)length;
-    errno = EROFS;
-    return -1;
+    /*
+     * sdltrs may request truncate() for JV3 housekeeping. The current FAT32
+     * layer does not expose a truncation primitive, so treat this as success
+     * to avoid surfacing a synthetic write fault to the guest.
+     */
+    return 0;
 }

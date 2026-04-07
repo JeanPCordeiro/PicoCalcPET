@@ -7,6 +7,7 @@
 #include "trs_disk.h"
 #include "z80.h"
 #include "platform/platform.h"
+#include "platform/platform_file.h"
 
 extern const char *program_name;
 
@@ -82,7 +83,7 @@ static void show_missing_rom_screen(void)
     platform_screen_flush();
 }
 
-static void select_model3_rom_path(int argc, char **argv)
+static bool select_model3_rom_path(int argc, char **argv)
 {
     static const char *candidate_paths[] = {
         "roms/model3.rom",
@@ -98,34 +99,43 @@ static void select_model3_rom_path(int argc, char **argv)
     if (argc > 1) {
         strncpy(romfile3, argv[1], FILENAME_MAX - 1);
         romfile3[FILENAME_MAX - 1] = '\0';
-        return;
+        return platform_file_exists(romfile3);
     }
 
     env_path = getenv("PICOCALC_TRS_ROM");
     if (env_path != NULL && env_path[0] != '\0') {
         strncpy(romfile3, env_path, FILENAME_MAX - 1);
         romfile3[FILENAME_MAX - 1] = '\0';
-        return;
+        return platform_file_exists(romfile3);
     }
 
     for (i = 0; i < (sizeof(candidate_paths) / sizeof(candidate_paths[0])); ++i) {
         if (platform_file_exists(candidate_paths[i])) {
             strncpy(romfile3, candidate_paths[i], FILENAME_MAX - 1);
             romfile3[FILENAME_MAX - 1] = '\0';
-            return;
+            return true;
         }
+    }
+
+    if (platform_embedded_model3_rom_available()) {
+        strncpy(romfile3, "embedded:model3.rom", FILENAME_MAX - 1);
+        romfile3[FILENAME_MAX - 1] = '\0';
+        return true;
     }
 
     strncpy(romfile3, candidate_paths[0], FILENAME_MAX - 1);
     romfile3[FILENAME_MAX - 1] = '\0';
+    return false;
 }
 
 static bool select_disk0_path(int argc, char **argv, char *buffer, size_t buffer_size)
 {
     static const char *candidate_paths[] = {
+        "disks/disk0.dsk",
         "disks/disk0.dmk",
         "disks/disk0.jv3",
         "disks/disk0.jv1",
+        "/disks/disk0.dsk",
         "/disks/disk0.dmk",
         "/disks/disk0.jv3",
         "/disks/disk0.jv1"
@@ -174,13 +184,17 @@ int main(int argc, char **argv)
     trs_model = 3;
     trs_sdl_init();
     platform_status_clear();
-    select_model3_rom_path(argc, argv);
+    rom_found = select_model3_rom_path(argc, argv);
     disk_found = select_disk0_path(argc, argv, disk0_path, sizeof(disk0_path));
-    rom_found = platform_file_exists(romfile3);
 
     platform_status_puts("Initializing PicoCalc TRS scaffold");
     platform_status_puts("Target machine: TRS-80 Model III");
+    status_printf("Embedded ROM: %s",
+                  platform_embedded_model3_rom_available() ? "yes" : "no");
     status_printf("ROM path: %s", romfile3);
+    if (strncmp(romfile3, "embedded:", 9) == 0) {
+        platform_status_puts("Using embedded Model III ROM");
+    }
     if (!rom_found) {
         platform_status_puts("ROM file not found");
         show_missing_rom_screen();
@@ -190,15 +204,20 @@ int main(int argc, char **argv)
     }
 
     if (disk_found) {
+        trs_disk_controller = 1;
         trs_disk_insert(0, disk0_path);
         status_printf("Disk 0: %s (%s)",
                       disk0_path,
                       trs_disk_getwriteprotect(0) ? "ro" : "rw");
     } else {
+        trs_disk_controller = 0;
         platform_status_puts("Disk 0: none");
+        platform_status_puts("Disk controller: off (BASIC fallback)");
     }
 
     trs_reset(1);
+    status_printf("ROM size: %d bytes", trs_rom_size);
+    status_printf("PC after reset: %04X", Z80_PC);
     trs_screen_caption();
     platform_status_puts("Model III reset path completed");
     platform_status_puts("Starting emulator run loop");

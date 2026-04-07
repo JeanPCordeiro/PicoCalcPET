@@ -10,7 +10,6 @@ set(SDLTRS_CORE_SOURCES
     ${SDLTRS_SRC_DIR}/error.c
     ${SDLTRS_SRC_DIR}/trs_clones.c
     ${SDLTRS_SRC_DIR}/trs_cp500.c
-    ${SDLTRS_SRC_DIR}/trs_interrupt.c
     ${SDLTRS_SRC_DIR}/trs_io.c
     ${SDLTRS_SRC_DIR}/trs_state_save.c
     ${SDLTRS_SRC_DIR}/z80.c
@@ -18,12 +17,14 @@ set(SDLTRS_CORE_SOURCES
 
 if(PICOCALC_PLATFORM)
     list(APPEND SDLTRS_CORE_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/emu/trs_interrupt_embedded.c
         ${CMAKE_CURRENT_SOURCE_DIR}/emu/trs_cmd_rom_embedded.c
         ${CMAKE_CURRENT_SOURCE_DIR}/emu/trs_disk_embedded.c
         ${CMAKE_CURRENT_SOURCE_DIR}/emu/trs_memory_embedded.c
     )
 else()
     list(APPEND SDLTRS_CORE_SOURCES
+        ${SDLTRS_SRC_DIR}/trs_interrupt.c
         ${SDLTRS_SRC_DIR}/trs_cmd_rom.c
         ${SDLTRS_SRC_DIR}/trs_disk.c
         ${SDLTRS_SRC_DIR}/trs_memory.c
@@ -44,6 +45,13 @@ target_include_directories(sdltrs_frontend_stubs PUBLIC
 )
 
 if(PICOCALC_PLATFORM)
+    set(EMBEDDED_MODEL3_ROM_PATH "${CMAKE_SOURCE_DIR}/roms/model3.rom")
+    set(EMBEDDED_MODEL3_ROM_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_model3_rom.c")
+    find_program(XXD_EXECUTABLE xxd)
+    option(PICOCALC_REQUIRE_EMBEDDED_MODEL3_ROM
+        "Require embedding roms/model3.rom in Pico firmware builds"
+        ON)
+
     pico_sdk_init()
     pico_generate_pio_header(sdltrs_frontend_stubs ${PICOCALC_AUDIO_PIO})
     target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_PLATFORM=1)
@@ -51,7 +59,6 @@ if(PICOCALC_PLATFORM)
         ${CMAKE_SOURCE_DIR}/fonts/trs80_model3_font_5x18.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/audio.c
         platform/platform_picocalc.c
-        platform/platform_time_picocalc.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/display.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/fat32.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/font-5x10.c
@@ -79,6 +86,35 @@ if(PICOCALC_PLATFORM)
         hardware_pio
         hardware_clocks
     )
+
+    if(PICOCALC_REQUIRE_EMBEDDED_MODEL3_ROM)
+        if(NOT EXISTS "${EMBEDDED_MODEL3_ROM_PATH}")
+            message(FATAL_ERROR "Required embedded ROM missing: ${EMBEDDED_MODEL3_ROM_PATH}")
+        endif()
+        if(NOT XXD_EXECUTABLE)
+            message(FATAL_ERROR "Required tool 'xxd' not found; cannot embed ${EMBEDDED_MODEL3_ROM_PATH}")
+        endif()
+    endif()
+
+    if(EXISTS "${EMBEDDED_MODEL3_ROM_PATH}" AND XXD_EXECUTABLE)
+        file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+        execute_process(
+            COMMAND ${XXD_EXECUTABLE} -i -n embedded_model3_rom ${EMBEDDED_MODEL3_ROM_PATH}
+            OUTPUT_FILE ${EMBEDDED_MODEL3_ROM_SOURCE}
+            RESULT_VARIABLE EMBED_ROM_XXD_RESULT
+        )
+        if(NOT EMBED_ROM_XXD_RESULT EQUAL 0)
+            message(FATAL_ERROR "Failed to embed ROM from ${EMBEDDED_MODEL3_ROM_PATH} (xxd exit ${EMBED_ROM_XXD_RESULT})")
+        endif()
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${EMBEDDED_MODEL3_ROM_PATH})
+        target_sources(sdltrs_frontend_stubs PRIVATE ${EMBEDDED_MODEL3_ROM_SOURCE})
+        target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_EMBEDDED_MODEL3_ROM=1)
+        message(STATUS "Embedding Model III ROM from ${EMBEDDED_MODEL3_ROM_PATH}")
+    elseif(EXISTS "${EMBEDDED_MODEL3_ROM_PATH}")
+        message(WARNING "Model III ROM found but xxd is unavailable; embedded ROM support disabled")
+    else()
+        message(STATUS "No embedded Model III ROM found at ${EMBEDDED_MODEL3_ROM_PATH}")
+    endif()
 else()
     target_sources(sdltrs_frontend_stubs PRIVATE
         platform/platform_host.c

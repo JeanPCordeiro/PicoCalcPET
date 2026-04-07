@@ -79,15 +79,67 @@ void trs_uart_save(FILE *file) { (void)file; }
 void trs_uart_load(FILE *file) { (void)file; }
 void trs_imp_exp_save(FILE *file) { (void)file; }
 void trs_imp_exp_load(FILE *file) { (void)file; }
-int do_emt_system(void) { return 0; }
-int do_emt_mouse(void) { return 0; }
-int do_emt_getddir(void) { return 0; }
-int do_emt_setddir(void) { return 0; }
-int do_emt_open(void) { return -1; }
-int do_emt_close(void) { return 0; }
-int do_emt_read(void) { return -1; }
-int do_emt_write(void) { return -1; }
-int do_emt_lseek(void) { return -1; }
+static void emt_set_error(int errnum)
+{
+    Z80_A = (Uint8)errnum;
+    Z80_F &= ~ZERO_MASK;
+}
+
+void do_emt_system(void)
+{
+    emt_set_error(ENOSYS);
+    Z80_BC = 0xFFFF;
+}
+
+void do_emt_mouse(void)
+{
+    emt_set_error(ENOSYS);
+}
+
+void do_emt_getddir(void)
+{
+    emt_set_error(ENOSYS);
+    Z80_BC = 0xFFFF;
+}
+
+void do_emt_setddir(void)
+{
+    emt_set_error(ENOSYS);
+}
+
+void do_emt_open(void)
+{
+    emt_set_error(ENOSYS);
+    Z80_DE = 0xFFFF;
+}
+
+void do_emt_close(void)
+{
+    emt_set_error(ENOSYS);
+}
+
+void do_emt_read(void)
+{
+    emt_set_error(ENOSYS);
+    Z80_BC = 0xFFFF;
+}
+
+void do_emt_write(void)
+{
+    emt_set_error(ENOSYS);
+    Z80_BC = 0xFFFF;
+}
+
+void do_emt_lseek(void)
+{
+    int i;
+
+    emt_set_error(ENOSYS);
+    for (i = 0; i < 8 && (Z80_HL + i) < 0x10000; ++i) {
+        mem_write(Z80_HL + i, 0xFF);
+    }
+}
+
 void do_emt_strerror(void)
 {
     const char *msg;
@@ -131,51 +183,43 @@ void do_emt_strerror(void)
 
 void do_emt_time(void)
 {
-    time_t now = time(NULL) + trs_timeoffset;
-
-    if (Z80_A == 1) {
-        const struct tm loctm = *(localtime(&now));
-        const struct tm gmtm = *(gmtime(&now));
-        const int daydiff = loctm.tm_mday - gmtm.tm_mday;
-
-        now += (loctm.tm_sec - gmtm.tm_sec)
-            + (loctm.tm_min - gmtm.tm_min) * 60
-            + (loctm.tm_hour - gmtm.tm_hour) * 3600;
-
-        switch (daydiff) {
-        case 0:
-        case 1:
-        case -1:
-            now += 24 * 3600 * daydiff;
-            break;
-        case 30:
-        case 29:
-        case 28:
-        case 27:
-            now -= 24 * 3600;
-            break;
-        case -30:
-        case -29:
-        case -28:
-        case -27:
-            now += 24 * 3600;
-            break;
-        default:
-            error("trouble computing local time in emt_time");
-            break;
-        }
-    } else if (Z80_A != 0) {
-        error("unsupported function code %d to emt_time", Z80_A);
-    }
-
-    Z80_BC = (Uint16)((now >> 16) & 0xFFFF);
-    Z80_DE = (Uint16)(now & 0xFFFF);
+    /*
+     * Deliberately unsupported for PicoCalc Model III.
+     * Return a deterministic ENOSYS result instead of leaving stale flags.
+     */
+    emt_set_error(ENOSYS);
+    Z80_BC = 0xFFFF;
+    Z80_DE = 0xFFFF;
 }
-int do_emt_opendir(void) { return -1; }
-int do_emt_closedir(void) { return 0; }
-int do_emt_readdir(void) { return -1; }
-int do_emt_chdir(void) { return -1; }
-int do_emt_getcwd(void) { return -1; }
+
+void do_emt_opendir(void)
+{
+    emt_set_error(ENOSYS);
+    Z80_DE = 0xFFFF;
+}
+
+void do_emt_closedir(void)
+{
+    emt_set_error(ENOSYS);
+}
+
+void do_emt_readdir(void)
+{
+    emt_set_error(ENOSYS);
+    Z80_BC = 0xFFFF;
+}
+
+void do_emt_chdir(void)
+{
+    emt_set_error(ENOSYS);
+}
+
+void do_emt_getcwd(void)
+{
+    emt_set_error(ENOSYS);
+    Z80_BC = 0xFFFF;
+}
+
 void do_emt_misc(void)
 {
     switch (Z80_A) {
@@ -250,13 +294,27 @@ void do_emt_misc(void)
         lowercase = Z80_HL ? 1 : 0;
         break;
     default:
-        error("unsupported function code %d to emt_misc", Z80_A);
+        emt_set_error(ENOSYS);
         break;
     }
 }
-int do_emt_ftruncate(void) { return -1; }
-int do_emt_opendisk(void) { return -1; }
-int do_emt_closedisk(void) { return 0; }
+
+void do_emt_ftruncate(void)
+{
+    emt_set_error(ENOSYS);
+}
+
+void do_emt_opendisk(void)
+{
+    emt_set_error(ENOSYS);
+    Z80_DE = 0xFFFF;
+    Z80_BC = 1;
+}
+
+void do_emt_closedisk(void)
+{
+    emt_set_error(ENOSYS);
+}
 void trs_hard_init(int poweron) { (void)poweron; }
 void trs_hard_attach(int drive, const char *diskname) { (void)drive; (void)diskname; }
 void trs_hard_remove(int drive) { (void)drive; }

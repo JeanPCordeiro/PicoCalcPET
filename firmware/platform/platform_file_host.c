@@ -26,3 +26,8 @@ int platform_fclose(platform_file_t *file)
 {
     return fclose(file);
 }
+
+bool platform_embedded_model3_rom_available(void)
+{
+    return false;
+}
