@@ -1,0 +1,16 @@
+# Hashes of file build rules.
+1bab6048a7623fede3260aaa9890f92b firmware/CMakeFiles/sdltrs_frontend_stubs_audio_pio_h
+7948800426604ccf9659c99be361f658 firmware/audio.pio.h
+f20e2a345b70e2a075fee5755b9e7f1f firmware/pico-sdk/src/rp2350/boot_stage2/CMakeFiles/bs2_default_bin
+901fc45f1feb64e229f3e37f1562573d firmware/pico-sdk/src/rp2350/boot_stage2/bs2_default.bin
+daf36e1f52c27888d35334741ebc0570 firmware/pico-sdk/src/rp2350/boot_stage2/bs2_default_padded_checksummed.S
+d713bfd60d1abe19625c7f645ba4e9b4 firmware/pico-sdk/src/rp2_common/pico_cyw43_driver/CMakeFiles/cyw43_driver_picow_cyw43_bus_pio_spi_pio_h
+00c2bc07bc0d784ff1d34643f933002d firmware/pico-sdk/src/rp2_common/pico_cyw43_driver/CMakeFiles/pioasmBuild-complete
+e199c43ea31af13ff707e6be1a732c67 firmware/pico-sdk/src/rp2_common/pico_cyw43_driver/cyw43_bus_pio_spi.pio.h
+ad5666320161f1bc8cb3e8f6fce47ac6 firmware/pico-sdk/src/rp2_common/pico_cyw43_driver/pioasm/src/pioasmBuild-stamp/pioasmBuild-configure
+6dfe02ac04cb0ac449d7a8fcb445c5c2 firmware/pico-sdk/src/rp2_common/pico_cyw43_driver/pioasm/src/pioasmBuild-stamp/pioasmBuild-download
+e18620e6318b86cf40013fa9b546b28b firmware/pico-sdk/src/rp2_common/pico_cyw43_driver/pioasm/src/pioasmBuild-stamp/pioasmBuild-mkdir
+f49c0b71221ab48e1260ed897f5b7baa firmware/pico-sdk/src/rp2_common/pico_cyw43_driver/pioasm/src/pioasmBuild-stamp/pioasmBuild-patch
+37a92d43dc62405f168c12b95a131ab5 firmware/pico-sdk/src/rp2_common/pico_cyw43_driver/pioasm/src/pioasmBuild-stamp/pioasmBuild-update
+4efbb726ab2fe27f95e7e8f50e7f1912 firmware/pico-sdk/src/rp2_common/pico_status_led/CMakeFiles/pico_status_led_ws2812_pio_h
+4d726e3df374ed6015c73a2a53189fc8 firmware/pico-sdk/src/rp2_common/pico_status_led/ws2812.pio.h

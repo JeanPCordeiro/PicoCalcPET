@@ -1,0 +1,5 @@
+/workspaces/PicoCalcTRS/build-pico/pioasm-install/pioasm/pioasm
+/workspaces/PicoCalcTRS/build-pico/pioasm-install/pioasm/pioasmTargets.cmake
+/workspaces/PicoCalcTRS/build-pico/pioasm-install/pioasm/pioasmTargets-release.cmake
+/workspaces/PicoCalcTRS/build-pico/pioasm-install/pioasm/pioasmConfig.cmake
+/workspaces/PicoCalcTRS/build-pico/pioasm-install/pioasm/pioasmConfigVersion.cmake

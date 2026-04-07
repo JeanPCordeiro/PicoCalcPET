@@ -1,0 +1,7 @@
+/workspaces/PicoCalcTRS/build-pico/pioasm/CMakeFiles/pioasm.dir
+/workspaces/PicoCalcTRS/build-pico/pioasm/CMakeFiles/edit_cache.dir
+/workspaces/PicoCalcTRS/build-pico/pioasm/CMakeFiles/rebuild_cache.dir
+/workspaces/PicoCalcTRS/build-pico/pioasm/CMakeFiles/list_install_components.dir
+/workspaces/PicoCalcTRS/build-pico/pioasm/CMakeFiles/install.dir
+/workspaces/PicoCalcTRS/build-pico/pioasm/CMakeFiles/install/local.dir
+/workspaces/PicoCalcTRS/build-pico/pioasm/CMakeFiles/install/strip.dir

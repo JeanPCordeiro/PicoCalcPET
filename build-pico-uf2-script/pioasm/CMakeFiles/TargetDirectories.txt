@@ -1,0 +1,7 @@
+/workspaces/PicoCalcTRS/build-pico-uf2-script/pioasm/CMakeFiles/pioasm.dir
+/workspaces/PicoCalcTRS/build-pico-uf2-script/pioasm/CMakeFiles/edit_cache.dir
+/workspaces/PicoCalcTRS/build-pico-uf2-script/pioasm/CMakeFiles/rebuild_cache.dir
+/workspaces/PicoCalcTRS/build-pico-uf2-script/pioasm/CMakeFiles/list_install_components.dir
+/workspaces/PicoCalcTRS/build-pico-uf2-script/pioasm/CMakeFiles/install.dir
+/workspaces/PicoCalcTRS/build-pico-uf2-script/pioasm/CMakeFiles/install/local.dir
+/workspaces/PicoCalcTRS/build-pico-uf2-script/pioasm/CMakeFiles/install/strip.dir
