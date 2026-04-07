@@ -1,2 +1,0 @@
-/usr/bin/ar qc libsdltrs_frontend_stubs.a CMakeFiles/sdltrs_frontend_stubs.dir/compat/sdl_compat.c.o CMakeFiles/sdltrs_frontend_stubs.dir/frontend/trs_frontend_stub.c.o CMakeFiles/sdltrs_frontend_stubs.dir/frontend/trs_keyboard_stub.c.o CMakeFiles/sdltrs_frontend_stubs.dir/emu/sdltrs_peripheral_stubs.c.o CMakeFiles/sdltrs_frontend_stubs.dir/platform/platform_host.c.o CMakeFiles/sdltrs_frontend_stubs.dir/platform/platform_file_host.c.o
-/usr/bin/ranlib libsdltrs_frontend_stubs.a

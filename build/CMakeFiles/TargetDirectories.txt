@@ -1,7 +1,0 @@
-/workspaces/PicoCalcTRS/build/CMakeFiles/edit_cache.dir
-/workspaces/PicoCalcTRS/build/CMakeFiles/rebuild_cache.dir
-/workspaces/PicoCalcTRS/build/firmware/CMakeFiles/sdltrs_frontend_stubs.dir
-/workspaces/PicoCalcTRS/build/firmware/CMakeFiles/sdltrs_core.dir
-/workspaces/PicoCalcTRS/build/firmware/CMakeFiles/picocalc_trs_scaffold.dir
-/workspaces/PicoCalcTRS/build/firmware/CMakeFiles/edit_cache.dir
-/workspaces/PicoCalcTRS/build/firmware/CMakeFiles/rebuild_cache.dir

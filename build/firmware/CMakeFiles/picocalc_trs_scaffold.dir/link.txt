@@ -1,1 +1,0 @@
-/usr/bin/cc CMakeFiles/picocalc_trs_scaffold.dir/main.c.o -o picocalc_trs_scaffold  libsdltrs_core.a libsdltrs_frontend_stubs.a 
