@@ -33,6 +33,7 @@ enum {
 };
 
 #define PICOCALC_STATUS_CYAN RGB(0, 255, 255)
+#define PICOCALC_TRS_AMBER RGB(255, 191, 0)
 
 static int picocalc_cols = 64;
 static int picocalc_rows = 16;
@@ -46,7 +47,7 @@ static uint16_t picocalc_trs_cell_buffer[PICOCALC_TRS_FONT_WIDTH * 2 * PICOCALC_
 
 static uint16_t picocalc_trs_foreground(void)
 {
-    return GREEN_PHOSPHOR;
+    return PICOCALC_TRS_AMBER;
 }
 
 static uint16_t picocalc_trs_background(void)
@@ -110,7 +111,7 @@ static void picocalc_render_trs_cell(int col, int row, uint8_t ch, uint8_t mode)
 
     if ((mode & INVERSE) && (glyph_code & 0x80)) {
         invert = true;
-        glyph_code &= 0x7F;
+        glyph_code = (uint8_t)(glyph_code & 0x7F);
     }
 
     if (invert) {
@@ -197,6 +198,8 @@ void platform_init(void)
     lcd_set_background(BACKGROUND);
     lcd_enable_cursor(false);
     lcd_set_underscore(false);
+    lcd_define_scrolling(0, 0);
+    lcd_scroll_reset();
     sleep_ms(250);
     lcd_clear_screen();
     picocalc_status_row = picocalc_rows;
@@ -294,6 +297,8 @@ void platform_screen_configure(int cols, int rows)
     picocalc_use_trs_font = (cols == 64 && rows == 16);
 
     if (picocalc_use_trs_font) {
+        lcd_define_scrolling(0, 0);
+        lcd_scroll_reset();
         picocalc_status_rows = (HEIGHT - picocalc_trs_pixel_height()) / GLYPH_HEIGHT;
         if (picocalc_status_rows < 0) {
             picocalc_status_rows = 0;
@@ -322,6 +327,8 @@ void platform_screen_write_cell(int col, int row, uint8_t ch, uint8_t mode)
     }
 
     if (picocalc_use_trs_font) {
+        /* TRS rendering assumes absolute LCD coordinates; force a neutral scroll offset. */
+        lcd_scroll_reset();
         picocalc_render_trs_cell(col, row, ch ? ch : ' ', mode);
         return;
     }
@@ -367,6 +374,19 @@ void platform_status_puts(const char *text)
     line = picocalc_status_row + picocalc_status_next_line;
     picocalc_write_line(line, text);
     picocalc_status_next_line = (picocalc_status_next_line + 1) % picocalc_status_rows;
+}
+
+void platform_status_write_line(int line, const char *text)
+{
+    if (text == NULL || picocalc_status_rows <= 0) {
+        return;
+    }
+
+    if (line < 0 || line >= picocalc_status_rows) {
+        return;
+    }
+
+    picocalc_write_line(picocalc_status_row + line, text);
 }
 
 void platform_set_disk_led(int drive, int on_off)

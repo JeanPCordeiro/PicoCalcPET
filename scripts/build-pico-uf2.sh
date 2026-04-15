@@ -9,6 +9,7 @@ PICOTOOL_SRC_DIR="${PICOTOOL_SRC_DIR:-/tmp/picotool}"
 PICOTOOL_INSTALL_DIR="${PICOTOOL_INSTALL_DIR:-/tmp/picotool/install}"
 BUILD_DIR="${BUILD_DIR:-${REPO_ROOT}/build-pico-uf2}"
 DIST_DIR="${DIST_DIR:-${REPO_ROOT}/dist}"
+PICOCALC_ENABLE_FDC_DIAG="${PICOCALC_ENABLE_FDC_DIAG:-OFF}"
 
 if [[ ! -d "${PICO_SDK_PATH}" ]]; then
     echo "error: PICO_SDK_PATH does not exist: ${PICO_SDK_PATH}" >&2
@@ -40,6 +41,7 @@ export PATH="${PICOTOOL_INSTALL_DIR}/bin:${PATH}"
 cmake -S "${REPO_ROOT}" \
     -B "${BUILD_DIR}" \
     -DPICOCALC_PLATFORM=ON \
+    -DPICOCALC_ENABLE_FDC_DIAG="${PICOCALC_ENABLE_FDC_DIAG}" \
     -DPICO_NO_PICOTOOL=0 \
     -Dpicotool_DIR="${PICOTOOL_INSTALL_DIR}/lib/cmake/picotool"
 

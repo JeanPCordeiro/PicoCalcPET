@@ -1,6 +1,7 @@
 message(STATUS "Entering firmware scaffold")
 message(STATUS "Local firmware code lives under ${CMAKE_CURRENT_SOURCE_DIR}")
 message(STATUS "Vendor integration is documented under docs/")
+option(PICOCALC_ENABLE_FDC_DIAG "Enable on-device FDC diagnostic status tracing" OFF)
 
 set(SDLTRS_SRC_DIR "${SDLTRS_DIR}/src")
 set(PICOCALC_STARTER_DRIVERS_DIR "${PICOCALC_TEXT_STARTER_DIR}/drivers")
@@ -15,9 +16,9 @@ if(PICOCALC_PLATFORM)
     set(PICOCALC_PATCHED_SDLTRS_SRC_DIR "${CMAKE_CURRENT_BINARY_DIR}/patched-sdltrs/src")
     file(MAKE_DIRECTORY "${PICOCALC_PATCHED_SDLTRS_SRC_DIR}")
 
-    find_program(GIT_EXECUTABLE git)
-    if(NOT GIT_EXECUTABLE)
-        message(FATAL_ERROR "git is required to apply local sdltrs patches")
+    find_program(PATCH_EXECUTABLE patch)
+    if(NOT PATCH_EXECUTABLE)
+        message(FATAL_ERROR "patch is required to apply local sdltrs patches")
     endif()
 
     function(picocalc_prepare_patched_sdltrs_source source_name patch_relative_path output_var)
@@ -28,14 +29,16 @@ if(PICOCALC_PLATFORM)
         file(COPY "${upstream_source}" DESTINATION "${PICOCALC_PATCHED_SDLTRS_SRC_DIR}")
 
         execute_process(
-            COMMAND "${GIT_EXECUTABLE}" apply --whitespace=nowarn -p1 "${source_patch}"
+            COMMAND "${PATCH_EXECUTABLE}" -s -p1 -i "${source_patch}"
             WORKING_DIRECTORY "${PICOCALC_PATCHED_SDLTRS_SRC_DIR}"
             RESULT_VARIABLE source_patch_result
+            OUTPUT_VARIABLE source_patch_output
             ERROR_VARIABLE source_patch_error
         )
         if(NOT source_patch_result EQUAL 0)
             message(FATAL_ERROR
                 "Failed to apply ${source_patch} to ${source_name}:\n"
+                "${source_patch_output}\n"
                 "${source_patch_error}")
         endif()
 
@@ -98,6 +101,11 @@ target_include_directories(sdltrs_frontend_stubs PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/compat
     ${SDLTRS_SRC_DIR}
 )
+if(PICOCALC_ENABLE_FDC_DIAG)
+    target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_ENABLE_FDC_DIAG=1)
+else()
+    target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_ENABLE_FDC_DIAG=0)
+endif()
 
 if(PICOCALC_PLATFORM)
     set(EMBEDDED_MODEL3_ROM_PATH "${CMAKE_SOURCE_DIR}/roms/model3.rom")

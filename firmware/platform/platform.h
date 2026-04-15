@@ -38,6 +38,7 @@ void platform_screen_write_cell(int col, int row, uint8_t ch, uint8_t mode);
 void platform_screen_flush(void);
 void platform_status_clear(void);
 void platform_status_puts(const char *text);
+void platform_status_write_line(int line, const char *text);
 void platform_set_disk_led(int drive, int on_off);
 void platform_set_hard_led(int drive, int on_off);
 void platform_set_turbo_led(bool enabled);

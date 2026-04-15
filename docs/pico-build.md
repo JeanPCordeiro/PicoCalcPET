@@ -153,12 +153,33 @@ On PicoCalc, the existence checks are routed through the FAT32 layer.
 
 1. initialize submodules
 2. set `PICO_SDK_PATH`
-3. run `./scripts/build-pico-uf2.sh` for a flashable UF2 build
+3. run `./scripts/regression-m1.sh` for M1 automated regression gates and UF2 build
 4. or configure manually with `-DPICOCALC_PLATFORM=ON`
 5. flash the resulting image:
    - preferred stable artifact: [dist/picocalc_trs_scaffold.uf2](/workspaces/PicoCalcTRS/dist/picocalc_trs_scaffold.uf2)
    - use `.uf2` if `picotool` is available and UF2 generation is enabled
    - otherwise use the generated `.elf` or `.hex` with your preferred flashing workflow
+
+## M1 Regression Harness
+
+Run:
+
+```bash
+./scripts/regression-m1.sh
+```
+
+What it checks:
+
+- UF2 build success
+- expected patch set shape (`0001`, `0004`)
+- UF2 artifact presence and hash/size capture
+- compile-time `trs_cmd_rom` shim injection guard
+- optional host build (`RUN_HOST_BUILD=1`)
+
+For on-device verification, use:
+
+- [m1-compatibility-checklist.md](/workspaces/PicoCalcTRS/docs/m1-compatibility-checklist.md)
+- [milestones.md](/workspaces/PicoCalcTRS/docs/milestones.md)
 
 ## Host Build Reminder
 

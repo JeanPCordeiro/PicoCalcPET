@@ -1,3 +1,5 @@
+diff --git a/trs_disk.c b/trs_disk.c
+index 8b78cba..a6012ea 100644
 --- a/trs_disk.c
 +++ b/trs_disk.c
 @@ -1,3 +1,9 @@
@@ -19,20 +21,23 @@
  
  #include <stdio.h>
  #include <stdlib.h>
-@@ -298,6 +304,12 @@
+@@ -297,6 +303,15 @@ typedef struct {
+ } DiskState;
  
  static DiskState disk[NDRIVES];
- 
++static int drive_selected_valid = 1;
++extern void picocalc_trs_diag_disk_event(Uint8 tag, Uint8 value, Uint8 status,
++                                         int drive, int side, int density, unsigned int pc);
++
 +static int
 +drive_index_valid(int drive)
 +{
 +  return (drive >= 0 && drive < NDRIVES);
 +}
-+
+ 
  /* Emulate interleave in JV1 mode */
  static const Uint8 jv1_interleave[10] = {0, 5, 1, 6, 2, 7, 3, 8, 4, 9};
- 
-@@ -391,7 +403,7 @@
+@@ -391,7 +406,7 @@ trs_disk_debug(void)
  void
  trs_disk_setsize(int unit, int value)
  {
@@ -41,7 +46,7 @@
    disk[unit].inches = (value == 8) ? 8 : 5;
  }
  
-@@ -399,7 +411,7 @@
+@@ -399,7 +414,7 @@ trs_disk_setsize(int unit, int value)
  void
  trs_disk_setstep(int unit, int value)
  {
@@ -50,7 +55,7 @@
    disk[unit].real_step = (value == 2) ? 2 : 1;
  }
  #endif
-@@ -407,25 +419,28 @@
+@@ -407,25 +422,28 @@ trs_disk_setstep(int unit, int value)
  int
  trs_disk_getsize(int unit)
  {
@@ -80,7 +85,7 @@
    return disk[unit].writeprot;
  }
  
-@@ -433,7 +448,7 @@
+@@ -433,7 +451,7 @@ trs_disk_getwriteprotect(int unit)
  int
  trs_disk_getstep(int unit)
  {
@@ -89,7 +94,15 @@
    return disk[unit].real_step;
  }
  #endif
-@@ -543,6 +558,10 @@
+@@ -457,6 +475,7 @@ trs_disk_init(int poweron)
+   state.controller = (trs_model == 1) ? TRSDISK_P1771 : TRSDISK_P1791;
+   state.last_readadr = -1;
+   state.motor_timeout = 0;
++  drive_selected_valid = 1;
+ 
+   if (poweron) {
+     int i;
+@@ -543,6 +562,10 @@ jv3_id_compare(const void* p1, const void* p2)
  static void
  jv3_sort_ids(int drive)
  {
@@ -100,7 +113,7 @@
    DiskState *d = &disk[drive];
    int const olddrive = state.curdrive;
    int i, track, side;
-@@ -717,42 +736,75 @@
+@@ -717,42 +740,75 @@ jv3_free_sector(DiskState *d, int id_index)
  static void
  trs_disk_emutype(DiskState *d)
  {
@@ -196,7 +209,7 @@
    if (c == 0) {
      fseek(d->file, 1, 0);
      if (getc(d->file) == 0xfe) {
-@@ -773,6 +825,10 @@
+@@ -773,6 +829,10 @@ trs_disk_emutype(DiskState *d)
  void
  trs_disk_remove(int drive)
  {
@@ -207,7 +220,7 @@
    DiskState *d = &disk[drive];
  
    if (d->file != NULL) {
-@@ -786,6 +842,11 @@
+@@ -786,6 +846,11 @@ trs_disk_remove(int drive)
  void
  trs_disk_insert(int drive, const char *diskname)
  {
@@ -219,16 +232,41 @@
    DiskState *d = &disk[drive];
    struct stat st = { 0 };
    int c;
-@@ -1247,6 +1308,8 @@
+@@ -1207,7 +1272,7 @@ angle(void)
+ static void
+ type1_status(void)
+ {
+-  const DiskState *d = &disk[state.curdrive];
++  const DiskState *d;
+ 
+   switch (cmd_type(state.currcommand)) {
+   case 1:
+@@ -1217,6 +1282,14 @@ type1_status(void)
+     return;
+   }
+ 
++  if (!drive_selected_valid) {
++    state.status |= (TRSDISK_INDEX | TRSDISK_TRKZERO | TRSDISK_NOTRDY);
++    state.status &= ~(TRSDISK_WRITEPRT | TRSDISK_HEADENGD);
++    return;
++  }
++
++  d = &disk[state.curdrive];
++
+   if (d->file == NULL || (d->emutype == REAL && d->u.real.empty)) {
+     state.status |= TRSDISK_INDEX;
+   } else {
+@@ -1247,6 +1320,9 @@ type1_status(void)
  void
  trs_disk_select_write(Uint8 data)
  {
 +  int selected_drive = state.curdrive;
++  Uint8 select_raw = data;
 +
  #ifdef ZBX
    static int old_data = -1;
  
-@@ -1298,32 +1361,32 @@
+@@ -1298,32 +1374,32 @@ trs_disk_select_write(Uint8 data)
      state.status |= TRSDISK_NOTRDY;
      break;
    case TRSDISK_0:
@@ -269,7 +307,7 @@
      break;
    default:
      trs_disk_unimpl(data, "bogus drive select");
-@@ -1332,7 +1395,13 @@
+@@ -1332,7 +1408,15 @@ trs_disk_select_write(Uint8 data)
    }
  
    /* Select drives 4-7 for 8" disks */
@@ -278,13 +316,24 @@
 +
 +  if (!drive_index_valid(selected_drive)) {
 +    state.status |= TRSDISK_NOTRDY;
++    drive_selected_valid = 0;
 +  } else {
 +    state.curdrive = selected_drive;
++    drive_selected_valid = 1;
 +  }
  
    /* If a drive was selected... */
    if (!(state.status & TRSDISK_NOTRDY)) {
-@@ -1658,6 +1727,7 @@
+@@ -1346,6 +1430,8 @@ trs_disk_select_write(Uint8 data)
+     /* Update our knowledge of whether there is a real disk present */
+     if (d->emutype == REAL) real_check_empty(d);
+   }
++  picocalc_trs_diag_disk_event('S', select_raw, state.status, selected_drive,
++                               state.curside, state.density, (unsigned int)Z80_PC);
+ }
+ 
+ Uint8
+@@ -1658,6 +1744,7 @@ trs_disk_data_write(Uint8 data)
  #endif
    switch (state.currcommand & TRSDISK_CMDMASK) {
    case TRSDISK_WRITE:
@@ -292,7 +341,37 @@
      if (state.bytecount > 0) {
        if (d->emutype == REAL) {
  	d->u.real.buf[size_code_to_size(d->u.real.size_code)
-@@ -2681,9 +2751,11 @@
+@@ -2297,6 +2384,29 @@ trs_disk_command_write(Uint8 cmd)
+     debug("[PC=%04X] command_write(0x%02X)\n", Z80_PC, cmd);
+   }
+ #endif
++  picocalc_trs_diag_disk_event('C', cmd, state.status, state.curdrive,
++                               state.curside, state.density, (unsigned int)Z80_PC);
++
++  if (state.status & TRSDISK_NOTRDY) {
++    event = trs_event_scheduled();
++    if (event == trs_disk_lostdata || event == trs_disk_intrq_interrupt) {
++      trs_cancel_event();
++    }
++    trs_disk_intrq_interrupt(0);
++    state.currcommand = cmd;
++    state.bytecount = 0;
++    state.format = FMT_DONE;
++    state.format_bytecount = 0;
++    state.status &= ~(TRSDISK_BUSY | TRSDISK_DRQ | TRSDISK_LOSTDATA |
++                      TRSDISK_CRCERR | TRSDISK_RECTYPE | TRSDISK_NOTFOUND |
++                      TRSDISK_WRITEFLT | TRSDISK_WRITEPRT);
++    state.status |= TRSDISK_NOTRDY;
++    trs_disk_drq_interrupt();
++    trs_disk_done(0);
++    picocalc_trs_diag_disk_event('N', cmd, state.status, state.curdrive,
++                                 state.curside, state.density, (unsigned int)Z80_PC);
++    return;
++  }
+ 
+   /* Handle DMK partial track reformat */
+   if (d->emutype == DMK &&
+@@ -2681,9 +2791,11 @@ trs_disk_command_write(Uint8 cmd)
      break;
  
    case TRSDISK_WRITE:
@@ -305,7 +384,7 @@
  	    cmd, state.curdrive, state.curside, d->phytrack,
  	    state.track, state.sector, state.density ? "d" : "s");
      }
-@@ -2908,15 +2980,11 @@
+@@ -2908,15 +3020,11 @@ trs_disk_command_write(Uint8 cmd)
        trs_schedule_event(trs_disk_lostdata, state.currcommand,
  			 500000 * z80_state.clockMHz);
      }

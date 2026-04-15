@@ -7,6 +7,10 @@
 #include "trs_keyboard_internal.h"
 #include "platform/platform.h"
 
+#ifndef PICOCALC_ENABLE_FDC_DIAG
+#define PICOCALC_ENABLE_FDC_DIAG 0
+#endif
+
 char romfile1[FILENAME_MAX];
 char romfile3[FILENAME_MAX];
 char romfile4p[FILENAME_MAX];
@@ -46,9 +50,12 @@ typedef struct {
     Uint8 ch;
 } trs_cell_t;
 
-static trs_cell_t trs_screen_cells[80 * 24];
+#define TRS_SCREEN_BUFFER_CELLS 2048
+
+static trs_cell_t trs_screen_cells[TRS_SCREEN_BUFFER_CELLS];
 static int trs_screen_cols = 64;
 static int trs_screen_rows = 16;
+static int trs_screen_chars = 1024;
 static int trs_screen_mode_flags;
 static int trs_screen_dirty;
 static unsigned int trs_cursor_position = UINT_MAX;
@@ -57,17 +64,56 @@ static int trs_cursor_start;
 static int trs_cursor_end;
 static int trs_m6845_raster = 12;
 static int trs_scale_factor = 2;
+static unsigned int trs_diag_last_position = UINT_MAX;
+static Uint8 trs_diag_last_character = ' ';
+static Uint8 trs_diag_last_mode;
+static unsigned int trs_diag_oob_position = UINT_MAX;
+static unsigned int trs_diag_write_count;
+static unsigned int trs_diag_refresh_count;
+static unsigned int trs_diag_cursor_count;
+static unsigned int trs_diag_oob_count;
+static unsigned int trs_diag_publish_tick;
+#if PICOCALC_ENABLE_FDC_DIAG
+static Uint8 trs_diag_fdc_tag = '?';
+static Uint8 trs_diag_fdc_value;
+static Uint8 trs_diag_fdc_status;
+static int trs_diag_fdc_drive;
+static int trs_diag_fdc_side;
+static int trs_diag_fdc_density;
+static unsigned int trs_diag_fdc_pc;
+static unsigned long trs_diag_fdc_select_count;
+static unsigned long trs_diag_fdc_command_count;
+static unsigned long trs_diag_fdc_status_count;
+static unsigned long trs_diag_fdc_notrdy_count;
+static unsigned long trs_diag_fdc_event_seq;
+static unsigned long trs_diag_fdc_last_render_seq;
+#endif
 
 static void trs_fill_screen(Uint8 ch)
 {
-    for (size_t i = 0; i < (sizeof(trs_screen_cells) / sizeof(trs_screen_cells[0])); ++i) {
+    for (size_t i = 0; i < TRS_SCREEN_BUFFER_CELLS; ++i) {
         trs_screen_cells[i].ch = ch;
     }
 }
 
 static int trs_screen_total_cells(void)
 {
-    return trs_screen_cols * trs_screen_rows;
+    return trs_screen_chars;
+}
+
+static void trs_clear_hidden_cells(void)
+{
+    int i;
+
+    if (trs_screen_chars < 0) {
+        trs_screen_chars = 0;
+    } else if (trs_screen_chars > TRS_SCREEN_BUFFER_CELLS) {
+        trs_screen_chars = TRS_SCREEN_BUFFER_CELLS;
+    }
+
+    for (i = trs_screen_chars; i < TRS_SCREEN_BUFFER_CELLS; ++i) {
+        trs_screen_cells[i].ch = ' ';
+    }
 }
 
 static void trs_render_cell(unsigned int position)
@@ -76,7 +122,7 @@ static void trs_render_cell(unsigned int position)
     int row;
     Uint8 mode;
 
-    if (position >= (sizeof(trs_screen_cells) / sizeof(trs_screen_cells[0]))) {
+    if (position >= (unsigned int)trs_screen_chars) {
         return;
     }
 
@@ -88,10 +134,145 @@ static void trs_render_cell(unsigned int position)
 
     mode = (Uint8)trs_screen_mode_flags;
     if (trs_cursor_visible && position == trs_cursor_position) {
-        mode |= PLATFORM_CELL_CURSOR;
+        mode |= PLATFORM_CELL_UNDERSCORE;
     }
 
     platform_screen_write_cell(col, row, trs_screen_cells[position].ch, mode);
+}
+
+static void trs_diag_publish(int force)
+{
+    char line0[80];
+    char line1[80];
+    char line2[80];
+    char posbuf[16];
+    unsigned int total = (unsigned int)trs_screen_total_cells();
+    int col = -1;
+    int row = -1;
+    Uint8 mode = trs_diag_last_mode;
+#if !PICOCALC_ENABLE_FDC_DIAG
+    char flag_expanded = (trs_screen_mode_flags & EXPANDED) ? 'E' : '.';
+    char flag_inverse = (trs_screen_mode_flags & INVERSE) ? 'I' : '.';
+    char flag_alternate = (trs_screen_mode_flags & ALTERNATE) ? 'A' : '.';
+    char flag_reverse = (trs_screen_mode_flags & REVERSE) ? 'R' : '.';
+#endif
+
+    if (!force) {
+        trs_diag_publish_tick++;
+        if ((trs_diag_publish_tick & 0x3Fu) != 0) {
+            return;
+        }
+    }
+
+    if (trs_diag_last_position < total && trs_screen_cols > 0) {
+        col = (int)(trs_diag_last_position % (unsigned int)trs_screen_cols);
+        row = (int)(trs_diag_last_position / (unsigned int)trs_screen_cols);
+    }
+
+    if (row >= 0 && col >= 0) {
+        snprintf(posbuf, sizeof(posbuf), "%02d,%02d", row, col);
+    } else {
+        snprintf(posbuf, sizeof(posbuf), "--,--");
+    }
+
+    snprintf(line0, sizeof(line0), "D0 W:%lu P:%04u RC:%s CH:%02X M:%02X",
+             (unsigned long)trs_diag_write_count,
+             (unsigned int)trs_diag_last_position,
+             posbuf,
+             (unsigned int)trs_diag_last_character,
+             (unsigned int)mode);
+    snprintf(line1, sizeof(line1), "D1 CUR:%04u V:%d S:%d E:%d C:%lu",
+             (unsigned int)trs_cursor_position,
+             trs_cursor_visible,
+             trs_cursor_start,
+             trs_cursor_end,
+             (unsigned long)trs_diag_cursor_count);
+#if PICOCALC_ENABLE_FDC_DIAG
+    snprintf(line2, sizeof(line2), "D2 F:%c V:%02X S:%02X D:%d/%d/%d P:%04X C:%lu N:%lu",
+             (char)trs_diag_fdc_tag,
+             (unsigned int)trs_diag_fdc_value,
+             (unsigned int)trs_diag_fdc_status,
+             trs_diag_fdc_drive,
+             trs_diag_fdc_side,
+             trs_diag_fdc_density,
+             (unsigned int)(trs_diag_fdc_pc & 0xFFFFu),
+             (unsigned long)trs_diag_fdc_command_count,
+             (unsigned long)trs_diag_fdc_notrdy_count);
+#else
+    snprintf(line2, sizeof(line2), "D2 R:%lu O:%lu@%04u F:%c%c%c%c",
+             (unsigned long)trs_diag_refresh_count,
+             (unsigned long)trs_diag_oob_count,
+             (unsigned int)trs_diag_oob_position,
+             flag_expanded, flag_inverse, flag_alternate, flag_reverse);
+#endif
+
+    platform_status_write_line(0, line0);
+    platform_status_write_line(1, line1);
+    platform_status_write_line(2, line2);
+}
+
+#if PICOCALC_ENABLE_FDC_DIAG
+static void trs_diag_publish_fdc_line(void)
+{
+    char line2[80];
+
+    snprintf(line2, sizeof(line2), "D2 F:%c V:%02X S:%02X D:%d/%d/%d P:%04X C:%lu N:%lu",
+             (char)trs_diag_fdc_tag,
+             (unsigned int)trs_diag_fdc_value,
+             (unsigned int)trs_diag_fdc_status,
+             trs_diag_fdc_drive,
+             trs_diag_fdc_side,
+             trs_diag_fdc_density,
+             (unsigned int)(trs_diag_fdc_pc & 0xFFFFu),
+             (unsigned long)trs_diag_fdc_command_count,
+             (unsigned long)trs_diag_fdc_notrdy_count);
+    platform_status_write_line(2, line2);
+}
+#endif
+
+void picocalc_trs_diag_disk_event(Uint8 tag, Uint8 value, Uint8 status,
+                                  int drive, int side, int density, unsigned int pc)
+{
+#if PICOCALC_ENABLE_FDC_DIAG
+    int should_render = 0;
+
+    trs_diag_fdc_tag = tag;
+    trs_diag_fdc_value = value;
+    trs_diag_fdc_status = status;
+    trs_diag_fdc_drive = drive;
+    trs_diag_fdc_side = side;
+    trs_diag_fdc_density = density;
+    trs_diag_fdc_pc = pc;
+    trs_diag_fdc_event_seq++;
+
+    if (tag == 'S') {
+        trs_diag_fdc_select_count++;
+    } else if (tag == 'C') {
+        trs_diag_fdc_command_count++;
+    } else if (tag == 'N') {
+        trs_diag_fdc_notrdy_count++;
+        should_render = 1;
+    }
+
+    if (!should_render) {
+        if ((trs_diag_fdc_event_seq - trs_diag_fdc_last_render_seq) >= 128ul) {
+            should_render = 1;
+        }
+    }
+
+    if (should_render) {
+        trs_diag_fdc_last_render_seq = trs_diag_fdc_event_seq;
+        trs_diag_publish_fdc_line();
+    }
+#else
+    (void)tag;
+    (void)value;
+    (void)status;
+    (void)drive;
+    (void)side;
+    (void)density;
+    (void)pc;
+#endif
 }
 
 int trs_parse_command_line(int argc, char **argv)
@@ -117,8 +298,14 @@ void trs_screen_init(int resize)
     (void)resize;
     trs_screen_cols = text80x24 ? 80 : 64;
     trs_screen_rows = text80x24 ? 24 : 16;
+    trs_screen_chars = trs_screen_cols * trs_screen_rows;
+    if (trs_screen_chars > TRS_SCREEN_BUFFER_CELLS) {
+        trs_screen_chars = TRS_SCREEN_BUFFER_CELLS;
+    }
+    trs_clear_hidden_cells();
     platform_screen_configure(trs_screen_cols, trs_screen_rows);
     trs_screen_refresh();
+    trs_diag_publish(1);
 }
 
 void trs_screen_reset(void)
@@ -130,15 +317,29 @@ void trs_screen_reset(void)
     trs_cursor_end = trs_m6845_raster - 1;
     platform_screen_configure(trs_screen_cols, trs_screen_rows);
     trs_screen_refresh();
+    trs_diag_publish(1);
 }
 
 void trs_screen_write_char(unsigned int position, Uint8 character)
 {
-    if (position < (sizeof(trs_screen_cells) / sizeof(trs_screen_cells[0]))) {
-        trs_screen_cells[position].ch = character;
-        trs_render_cell(position);
-        trs_screen_dirty = 1;
+    if (position >= (unsigned int)trs_screen_chars) {
+        trs_diag_oob_count++;
+        trs_diag_oob_position = position;
+        trs_diag_publish(1);
+        return;
     }
+
+    trs_screen_cells[position].ch = character;
+    trs_render_cell(position);
+    trs_diag_last_position = position;
+    trs_diag_last_character = character;
+    trs_diag_last_mode = (Uint8)trs_screen_mode_flags;
+    if (trs_cursor_visible && position == trs_cursor_position) {
+        trs_diag_last_mode = (Uint8)(trs_diag_last_mode | PLATFORM_CELL_UNDERSCORE);
+    }
+    trs_diag_write_count++;
+    trs_diag_publish(0);
+    trs_screen_dirty = 1;
 }
 
 void trs_screen_update(void)
@@ -163,6 +364,8 @@ void trs_screen_mode(int mode, int flag)
 
     trs_screen_mode_flags = updated_mode;
     trs_screen_refresh();
+    trs_diag_last_mode = (Uint8)trs_screen_mode_flags;
+    trs_diag_publish(1);
 }
 
 void trs_screen_80x24(int flag)
@@ -188,6 +391,8 @@ void trs_screen_refresh(void)
         trs_render_cell((unsigned int)i);
     }
     platform_screen_flush();
+    trs_diag_refresh_count++;
+    trs_diag_publish(0);
     trs_screen_dirty = 0;
 }
 
@@ -206,8 +411,33 @@ void trs_sdl_init(void)
     trs_cursor_visible = 0;
     trs_cursor_start = 0;
     trs_cursor_end = trs_m6845_raster - 1;
+    trs_diag_last_position = UINT_MAX;
+    trs_diag_last_character = ' ';
+    trs_diag_last_mode = 0;
+    trs_diag_oob_position = UINT_MAX;
+    trs_diag_write_count = 0;
+    trs_diag_refresh_count = 0;
+    trs_diag_cursor_count = 0;
+    trs_diag_oob_count = 0;
+    trs_diag_publish_tick = 0;
+#if PICOCALC_ENABLE_FDC_DIAG
+    trs_diag_fdc_tag = '?';
+    trs_diag_fdc_value = 0;
+    trs_diag_fdc_status = 0;
+    trs_diag_fdc_drive = -1;
+    trs_diag_fdc_side = 0;
+    trs_diag_fdc_density = 0;
+    trs_diag_fdc_pc = 0;
+    trs_diag_fdc_select_count = 0;
+    trs_diag_fdc_command_count = 0;
+    trs_diag_fdc_status_count = 0;
+    trs_diag_fdc_notrdy_count = 0;
+    trs_diag_fdc_event_seq = 0;
+    trs_diag_fdc_last_render_seq = 0;
+#endif
     trs_fill_screen(' ');
     trs_screen_init(1);
+    trs_diag_publish(1);
 }
 
 void trs_disk_led(int drive, int on_off)
@@ -303,6 +533,7 @@ void m6845_cursor(unsigned int position, int start, int end, int visible)
     trs_cursor_visible = visible && (position < (unsigned int)trs_screen_total_cells());
     trs_cursor_start = start;
     trs_cursor_end = end;
+    trs_diag_cursor_count++;
 
     if (previous_visible && previous_position < (unsigned int)trs_screen_total_cells()) {
         trs_render_cell(previous_position);
@@ -310,6 +541,7 @@ void m6845_cursor(unsigned int position, int start, int end, int visible)
     if (trs_cursor_visible) {
         trs_render_cell(trs_cursor_position);
     }
+    trs_diag_publish(0);
     trs_screen_dirty = 1;
 }
 

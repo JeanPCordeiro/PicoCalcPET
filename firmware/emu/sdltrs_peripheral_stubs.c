@@ -50,12 +50,13 @@ void grafyx_write_overlay(int value) { (void)value; }
 void grafyx_m3_write_mode(int value) { (void)value; }
 Uint8 grafyx_m3_read_byte(unsigned int position)
 {
-    return mem_video_page_read((int)position);
+    return mem_video_page_read((int)VIDEO_START + (int)position);
 }
 
 int grafyx_m3_write_byte(unsigned int position, int value)
 {
-    (void)mem_video_page_write((int)position, (Uint8)value);
+    (void)position;
+    (void)value;
     return 0;
 }
 void hrg_write_data(int address, int data) { (void)address; (void)data; }
