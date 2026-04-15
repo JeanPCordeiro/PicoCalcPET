@@ -1,0 +1,328 @@
+--- a/trs_disk.c
++++ b/trs_disk.c
+@@ -1,3 +1,9 @@
++#include <stdio.h>
++#include <sys/stat.h>
++#include "platform/platform_disk_stdio.h"
++#define fopen(...) picocalc_disk_fopen(__VA_ARGS__)
++#define stat(...) picocalc_disk_stat(__VA_ARGS__)
++
+ /*
+  * Copyright (c) 1996-2020, Timothy P. Mann
+  *
+@@ -41,7 +47,7 @@
+ #define TSTATEREV 1       /* Index holes timed by T-states, not real time */
+ #define SIZERETRY 1       /* Retry in different sizes on real_read */
+ #define DMK_MARK_IAM 0    /* Mark IAMs in track header; poor idea */
+-#define NDRIVES 8
++#define NDRIVES 2
+ 
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -298,6 +304,12 @@
+ 
+ static DiskState disk[NDRIVES];
+ 
++static int
++drive_index_valid(int drive)
++{
++  return (drive >= 0 && drive < NDRIVES);
++}
++
+ /* Emulate interleave in JV1 mode */
+ static const Uint8 jv1_interleave[10] = {0, 5, 1, 6, 2, 7, 3, 8, 4, 9};
+ 
+@@ -391,7 +403,7 @@
+ void
+ trs_disk_setsize(int unit, int value)
+ {
+-  if (unit < 0 || unit > 7) return;
++  if (!drive_index_valid(unit)) return;
+   disk[unit].inches = (value == 8) ? 8 : 5;
+ }
+ 
+@@ -399,7 +411,7 @@
+ void
+ trs_disk_setstep(int unit, int value)
+ {
+-  if (unit < 0 || unit > 7) return;
++  if (!drive_index_valid(unit)) return;
+   disk[unit].real_step = (value == 2) ? 2 : 1;
+ }
+ #endif
+@@ -407,25 +419,28 @@
+ int
+ trs_disk_getsize(int unit)
+ {
+-  if (unit < 0 || unit > 7) return 0;
++  if (!drive_index_valid(unit)) return 0;
+   return disk[unit].inches;
+ }
+ 
+ const char*
+ trs_disk_getfilename(int unit)
+ {
++  if (!drive_index_valid(unit)) return "";
+   return disk[unit].filename;
+ }
+ 
+ int
+ trs_disk_getdisktype(int unit)
+ {
++  if (!drive_index_valid(unit)) return NONE;
+   return disk[unit].emutype;
+ }
+ 
+ int
+ trs_disk_getwriteprotect(int unit)
+ {
++  if (!drive_index_valid(unit)) return 0;
+   return disk[unit].writeprot;
+ }
+ 
+@@ -433,7 +448,7 @@
+ int
+ trs_disk_getstep(int unit)
+ {
+-  if (unit < 0 || unit > 7) return 0;
++  if (!drive_index_valid(unit)) return 0;
+   return disk[unit].real_step;
+ }
+ #endif
+@@ -543,6 +558,10 @@
+ static void
+ jv3_sort_ids(int drive)
+ {
++  if (!drive_index_valid(drive)) {
++    return;
++  }
++
+   DiskState *d = &disk[drive];
+   int const olddrive = state.curdrive;
+   int i, track, side;
+@@ -717,42 +736,75 @@
+ static void
+ trs_disk_emutype(DiskState *d)
+ {
++  unsigned char hdr[DMK_HDR_SIZE];
++  long file_size;
++  int nsides;
++  long expected_size;
++  int i;
+   int c;
+ 
++  file_size = 0;
++  if (fseek(d->file, 0, SEEK_END) == 0) {
++    file_size = ftell(d->file);
++  }
++
+   fseek(d->file, 0, 0);
+   c = getc(d->file);
+   if (c == -1) {
+     d->emutype = JV1;
+     return;
+   }
+-  if (c == 0 || c == 0xff) {
+-    char fmt[4];
+-    int count;
+ 
+-    fseek(d->file, DMK_FORMAT, 0);
+-    count = fread(fmt, 1, DMK_FORMAT_SIZE, d->file);
+-    if (count != DMK_FORMAT_SIZE) {
+-      d->emutype = JV1;
+-      return;
+-    }
+-    if (fmt[0] == 0 && fmt[1] == 0 && fmt[2] == 0 && fmt[3] == 0) {
+-      fseek(d->file, DMK_TRACKLEN, 0);
+-      count = (Uint8) getc(d->file);
+-      count += (Uint8) getc(d->file) << 8;
+-      if (count >= 16 && count <= DMK_TRACKLEN_MAX) {
+-	d->emutype = DMK;
+-	d->writeprot = d->writeprot || (c == 0xff);
+-	return;
+-      }
+-    }
+-    if (fmt[0] == 0x78 && fmt[1] == 0x56 && fmt[2] == 0x34 && fmt[3] == 0x12) {
++  /*
++   * DMK detection must be strict. A raw JV1/JV3 image with a leading 0x00 can
++   * otherwise be misclassified as DMK and fail later with opaque DOS errors.
++   */
++  if ((c == 0 || c == 0xff) &&
++      fseek(d->file, 0, SEEK_SET) == 0 &&
++      fread(hdr, 1, sizeof(hdr), d->file) == sizeof(hdr)) {
++    if (hdr[DMK_FORMAT + 0] == 0x78 &&
++        hdr[DMK_FORMAT + 1] == 0x56 &&
++        hdr[DMK_FORMAT + 2] == 0x34 &&
++        hdr[DMK_FORMAT + 3] == 0x12) {
+       error("Real disk specifier file from DMK emulator not supported");
+       d->emutype = NONE;
+       fclose(d->file);
+       d->file = NULL;
+       return;
+     }
++
++    if (hdr[DMK_FORMAT + 0] == 0 &&
++        hdr[DMK_FORMAT + 1] == 0 &&
++        hdr[DMK_FORMAT + 2] == 0 &&
++        hdr[DMK_FORMAT + 3] == 0) {
++      int tracklen = hdr[DMK_TRACKLEN] | (hdr[DMK_TRACKLEN + 1] << 8);
++      int ntracks = hdr[DMK_NTRACKS];
++      int opts = hdr[DMK_OPTIONS];
++      int reserved_ok = 1;
++
++      for (i = 5; i < 12; ++i) {
++        if (hdr[i] != 0) {
++          reserved_ok = 0;
++          break;
++        }
++      }
++
++      nsides = (opts & DMK_SSIDE_OPT) ? 1 : 2;
++      expected_size = DMK_HDR_SIZE + (long)ntracks * (long)tracklen * (long)nsides;
++
++      if (reserved_ok &&
++          tracklen >= 16 &&
++          tracklen <= DMK_TRACKLEN_MAX &&
++          ntracks > 0 &&
++          nsides >= 1 && nsides <= 2 &&
++          file_size >= expected_size) {
++        d->emutype = DMK;
++        d->writeprot = d->writeprot || (c == 0xff);
++        return;
++      }
++    }
+   }
++
+   if (c == 0) {
+     fseek(d->file, 1, 0);
+     if (getc(d->file) == 0xfe) {
+@@ -773,6 +825,10 @@
+ void
+ trs_disk_remove(int drive)
+ {
++  if (!drive_index_valid(drive)) {
++    return;
++  }
++
+   DiskState *d = &disk[drive];
+ 
+   if (d->file != NULL) {
+@@ -786,6 +842,11 @@
+ void
+ trs_disk_insert(int drive, const char *diskname)
+ {
++  if (!drive_index_valid(drive)) {
++    state.status |= TRSDISK_NOTRDY;
++    return;
++  }
++
+   DiskState *d = &disk[drive];
+   struct stat st = { 0 };
+   int c;
+@@ -1247,6 +1308,8 @@
+ void
+ trs_disk_select_write(Uint8 data)
+ {
++  int selected_drive = state.curdrive;
++
+ #ifdef ZBX
+   static int old_data = -1;
+ 
+@@ -1298,32 +1361,32 @@
+     state.status |= TRSDISK_NOTRDY;
+     break;
+   case TRSDISK_0:
+-    state.curdrive = 0;
++    selected_drive = 0;
+     break;
+   case TRSDISK_1:
+-    state.curdrive = 1;
++    selected_drive = 1;
+     break;
+   case TRSDISK_2:
+-    state.curdrive = 2;
++    selected_drive = 2;
+     break;
+   case TRSDISK_3:
+-    state.curdrive = 3;
++    selected_drive = 3;
+     break;
+   case TRSDISK_4:
+     /* fake value for emulator only */
+-    state.curdrive = 4;
++    selected_drive = 4;
+     break;
+   case TRSDISK_5:
+     /* fake value for emulator only */
+-    state.curdrive = 5;
++    selected_drive = 5;
+     break;
+   case TRSDISK_6:
+     /* fake value for emulator only */
+-    state.curdrive = 6;
++    selected_drive = 6;
+     break;
+   case TRSDISK_7:
+     /* fake value for emulator only */
+-    state.curdrive = 7;
++    selected_drive = 7;
+     break;
+   default:
+     trs_disk_unimpl(data, "bogus drive select");
+@@ -1332,7 +1395,13 @@
+   }
+ 
+   /* Select drives 4-7 for 8" disks */
+-  state.curdrive = (state.curdrive + state.inches) & 7;
++  selected_drive = (selected_drive + state.inches) & 7;
++
++  if (!drive_index_valid(selected_drive)) {
++    state.status |= TRSDISK_NOTRDY;
++  } else {
++    state.curdrive = selected_drive;
++  }
+ 
+   /* If a drive was selected... */
+   if (!(state.status & TRSDISK_NOTRDY)) {
+@@ -1658,6 +1727,7 @@
+ #endif
+   switch (state.currcommand & TRSDISK_CMDMASK) {
+   case TRSDISK_WRITE:
++  case TRSDISK_WRITEM:
+     if (state.bytecount > 0) {
+       if (d->emutype == REAL) {
+ 	d->u.real.buf[size_code_to_size(d->u.real.size_code)
+@@ -2681,9 +2751,11 @@
+     break;
+ 
+   case TRSDISK_WRITE:
++  case TRSDISK_WRITEM:
+ #ifdef ZBX
+     if (trs_disk_debug_flags & DISKDEBUG_FDCCMD) {
+-      debug("write 0x%02X, drv %d, sid %d, ptk %d, tk %d, sec %d, %sden\n",
++      debug("write%s 0x%02X, drv %d, sid %d, ptk %d, tk %d, sec %d, %sden\n",
++            ((cmd & TRSDISK_CMDMASK) == TRSDISK_WRITEM) ? "m" : "",
+ 	    cmd, state.curdrive, state.curside, d->phytrack,
+ 	    state.track, state.sector, state.density ? "d" : "s");
+     }
+@@ -2908,15 +2980,11 @@
+       trs_schedule_event(trs_disk_lostdata, state.currcommand,
+ 			 500000 * z80_state.clockMHz);
+     }
+-    break;
+-
+-  case TRSDISK_WRITEM:
+-    state.last_readadr = -1;
+-    if (d->writeprot) {
+-      state.status = TRSDISK_WRITEPRT;
+-      break;
+-    }
+-    trs_disk_unimpl(cmd, "write multiple");
++    /*
++     * WD17xx WRITE MULTIPLE (0xB0) is handled as repeated single-sector write.
++     * This compatibility fallback is sufficient for DOS file creation/update
++     * paths that issue WRITEM on Model III media.
++     */
+     break;
+ 
+   case TRSDISK_READADR:

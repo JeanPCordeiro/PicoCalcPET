@@ -4,13 +4,8 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
-
-#ifdef PICOCALC_PLATFORM
-typedef struct platform_file_handle platform_file_t;
-#else
 #include <stdio.h>
 typedef FILE platform_file_t;
-#endif
 
 platform_file_t *platform_fopen(const char *path, const char *mode);
 int platform_getc(platform_file_t *file);

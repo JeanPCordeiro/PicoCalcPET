@@ -8,6 +8,7 @@
 #include "z80.h"
 #include "platform/platform.h"
 #include "platform/platform_file.h"
+#include "emu/picocalc_reset_policy.h"
 
 extern const char *program_name;
 
@@ -49,6 +50,28 @@ static void write_line(int row, const char *text)
     }
 }
 
+static void clear_line_cells(int row)
+{
+    int col;
+
+    for (col = 0; col < 64; ++col) {
+        platform_screen_write_cell(col, row, ' ', 0);
+    }
+}
+
+static void show_boot_banner(void)
+{
+    clear_line_cells(2);
+    write_line_centered(2, "PicoCalc TRS-80 Model III");
+}
+
+static void show_boot_stage(const char *text)
+{
+    clear_line_cells(4);
+    write_line_centered(4, text);
+    platform_screen_flush();
+}
+
 static void status_printf(const char *format, ...)
 {
     char buffer[65];
@@ -58,6 +81,53 @@ static void status_printf(const char *format, ...)
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
     platform_status_puts(buffer);
+}
+
+static const char *status_leaf_name(const char *path)
+{
+    const char *cursor;
+    const char *leaf;
+
+    if (path == NULL || path[0] == '\0') {
+        return "none";
+    }
+
+    leaf = path;
+    for (cursor = path; *cursor != '\0'; ++cursor) {
+        if (*cursor == '/' || *cursor == '\\') {
+            leaf = cursor + 1;
+        }
+    }
+
+    return (leaf[0] != '\0') ? leaf : path;
+}
+
+static void show_runtime_status(bool disk0_found, const char *disk0_path,
+                                bool disk1_found, const char *disk1_path)
+{
+    const char *rom_label;
+
+    rom_label = (strncmp(romfile3, "embedded:", 9) == 0) ? "embedded" : "file";
+
+    platform_status_clear();
+    status_printf("ROM:%s %dB PC:%04X D0:%c D1:%c",
+                  rom_label,
+                  trs_rom_size,
+                  Z80_PC,
+                  disk0_found ? 'Y' : 'N',
+                  disk1_found ? 'Y' : 'N');
+    if (disk0_found) {
+        status_printf("Disk0:%s (%s)", status_leaf_name(disk0_path),
+                      trs_disk_getwriteprotect(0) ? "ro" : "rw");
+    } else {
+        platform_status_puts("Disk0:none");
+    }
+    if (disk1_found) {
+        status_printf("Disk1:%s (%s)", status_leaf_name(disk1_path),
+                      trs_disk_getwriteprotect(1) ? "ro" : "rw");
+    } else {
+        platform_status_puts("Disk1:none");
+    }
 }
 
 static void show_missing_rom_screen(void)
@@ -128,43 +198,52 @@ static bool select_model3_rom_path(int argc, char **argv)
     return false;
 }
 
-static bool select_disk0_path(int argc, char **argv, char *buffer, size_t buffer_size)
+static bool select_disk_path(int argc, char **argv, int drive,
+                             char *buffer, size_t buffer_size)
 {
-    static const char *candidate_paths[] = {
-        "disks/disk0.dsk",
-        "disks/disk0.dmk",
-        "disks/disk0.jv3",
-        "disks/disk0.jv1",
-        "/disks/disk0.dsk",
-        "/disks/disk0.dmk",
-        "/disks/disk0.jv3",
-        "/disks/disk0.jv1"
+    static const char *extensions[] = {
+        ".dsk",
+        ".dmk",
+        ".jv3",
+        ".jv1"
     };
+    const char *env_name;
     const char *env_path;
-    size_t i;
-
+    int arg_index;
+    char candidate[FILENAME_MAX];
+    size_t ext_index;
     if (buffer == NULL || buffer_size == 0) {
         return false;
     }
 
     buffer[0] = '\0';
 
-    if (argc > 2 && argv[2][0] != '\0') {
-        strncpy(buffer, argv[2], buffer_size - 1);
+    arg_index = 2 + drive;
+    if (argc > arg_index && argv[arg_index][0] != '\0') {
+        strncpy(buffer, argv[arg_index], buffer_size - 1);
         buffer[buffer_size - 1] = '\0';
         return true;
     }
 
-    env_path = getenv("PICOCALC_TRS_DISK0");
+    env_name = (drive == 0) ? "PICOCALC_TRS_DISK0" : "PICOCALC_TRS_DISK1";
+    env_path = getenv(env_name);
     if (env_path != NULL && env_path[0] != '\0') {
         strncpy(buffer, env_path, buffer_size - 1);
         buffer[buffer_size - 1] = '\0';
         return true;
     }
 
-    for (i = 0; i < (sizeof(candidate_paths) / sizeof(candidate_paths[0])); ++i) {
-        if (platform_file_exists(candidate_paths[i])) {
-            strncpy(buffer, candidate_paths[i], buffer_size - 1);
+    for (ext_index = 0; ext_index < (sizeof(extensions) / sizeof(extensions[0])); ++ext_index) {
+        snprintf(candidate, sizeof(candidate), "disks/disk%d%s", drive, extensions[ext_index]);
+        if (platform_file_exists(candidate)) {
+            strncpy(buffer, candidate, buffer_size - 1);
+            buffer[buffer_size - 1] = '\0';
+            return true;
+        }
+
+        snprintf(candidate, sizeof(candidate), "/disks/disk%d%s", drive, extensions[ext_index]);
+        if (platform_file_exists(candidate)) {
+            strncpy(buffer, candidate, buffer_size - 1);
             buffer[buffer_size - 1] = '\0';
             return true;
         }
@@ -176,51 +255,81 @@ static bool select_disk0_path(int argc, char **argv, char *buffer, size_t buffer
 int main(int argc, char **argv)
 {
     char disk0_path[FILENAME_MAX];
+    char disk1_path[FILENAME_MAX];
+    bool sd_present;
     bool rom_found;
-    bool disk_found;
+    bool disk0_found;
+    bool disk1_found;
 
     program_name = "picocalc_trs_scaffold";
 
     trs_model = 3;
     trs_sdl_init();
     platform_status_clear();
-    rom_found = select_model3_rom_path(argc, argv);
-    disk_found = select_disk0_path(argc, argv, disk0_path, sizeof(disk0_path));
+    show_boot_banner();
+    show_boot_stage("Initializing firmware...");
+    platform_status_puts("Boot: display+input ready");
+    disk0_path[0] = '\0';
+    disk1_path[0] = '\0';
 
-    platform_status_puts("Initializing PicoCalc TRS scaffold");
-    platform_status_puts("Target machine: TRS-80 Model III");
-    status_printf("Embedded ROM: %s",
-                  platform_embedded_model3_rom_available() ? "yes" : "no");
-    status_printf("ROM path: %s", romfile3);
-    if (strncmp(romfile3, "embedded:", 9) == 0) {
-        platform_status_puts("Using embedded Model III ROM");
+    show_boot_stage("Checking SD card...");
+    sd_present = platform_sd_card_present();
+    status_printf("Boot: SD card %s", sd_present ? "present" : "absent");
+
+    if (!sd_present) {
+        show_boot_stage("No SD card: embedded boot");
+        disk0_found = false;
+        disk1_found = false;
+        if (platform_embedded_model3_rom_available()) {
+            strncpy(romfile3, "embedded:model3.rom", FILENAME_MAX - 1);
+            romfile3[FILENAME_MAX - 1] = '\0';
+            rom_found = true;
+            platform_status_puts("Boot: using embedded ROM");
+        } else {
+            romfile3[0] = '\0';
+            rom_found = false;
+            platform_status_puts("Boot: embedded ROM missing");
+        }
+    } else {
+        show_boot_stage("Probing ROM...");
+        platform_status_puts("Boot: probing ROM");
+        rom_found = select_model3_rom_path(argc, argv);
+        if (rom_found) {
+            status_printf("Boot: ROM %s", status_leaf_name(romfile3));
+        } else {
+            platform_status_puts("Boot: ROM not found");
+        }
+
+        show_boot_stage("Probing disks...");
+        disk0_found = select_disk_path(argc, argv, 0, disk0_path, sizeof(disk0_path));
+        disk1_found = select_disk_path(argc, argv, 1, disk1_path, sizeof(disk1_path));
+        status_printf("Boot: D0:%c D1:%c", disk0_found ? 'Y' : 'N', disk1_found ? 'Y' : 'N');
     }
     if (!rom_found) {
-        platform_status_puts("ROM file not found");
         show_missing_rom_screen();
         for (;;) {
             platform_poll_key(NULL, true);
         }
     }
 
-    if (disk_found) {
-        trs_disk_controller = 1;
+    show_boot_stage("Attaching disk images...");
+    trs_disk_controller = (disk0_found || disk1_found) ? 1 : 0;
+    if (disk0_found) {
+        status_printf("Boot: mount D0 %s", status_leaf_name(disk0_path));
         trs_disk_insert(0, disk0_path);
-        status_printf("Disk 0: %s (%s)",
-                      disk0_path,
-                      trs_disk_getwriteprotect(0) ? "ro" : "rw");
-    } else {
-        trs_disk_controller = 0;
-        platform_status_puts("Disk 0: none");
-        platform_status_puts("Disk controller: off (BASIC fallback)");
+    }
+    if (disk1_found) {
+        status_printf("Boot: mount D1 %s", status_leaf_name(disk1_path));
+        trs_disk_insert(1, disk1_path);
     }
 
+    show_boot_stage("Resetting Model III...");
+    platform_status_puts("Boot: resetting CPU/FDC");
     trs_reset(1);
-    status_printf("ROM size: %d bytes", trs_rom_size);
-    status_printf("PC after reset: %04X", Z80_PC);
+    picocalc_apply_post_reset_policy();
+    show_boot_stage("Starting ROM...");
+    show_runtime_status(disk0_found, disk0_path, disk1_found, disk1_path);
     trs_screen_caption();
-    platform_status_puts("Model III reset path completed");
-    platform_status_puts("Starting emulator run loop");
     z80_run(1);
 
     return 0;

@@ -1,22 +1,27 @@
+#define _GNU_SOURCE 1
+
 #include "platform_file.h"
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "pico/stdlib.h"
 
 #include "drivers/fat32.h"
 
-struct platform_file_handle {
+typedef struct {
     bool is_embedded;
     fat32_file_t fat32_file;
     const uint8_t *embedded_data;
     size_t embedded_size;
     size_t embedded_pos;
-};
+} platform_file_cookie_t;
 
 #ifdef PICOCALC_EMBEDDED_MODEL3_ROM
 extern const unsigned char embedded_model3_rom[];
@@ -30,6 +35,119 @@ static bool is_embedded_model3_path(const char *path)
             strcmp(path, "__embedded_model3__") == 0);
 }
 
+static bool platform_fat32_open_retry(fat32_file_t *file, const char *path)
+{
+    int attempt;
+
+    for (attempt = 0; attempt < 8; ++attempt) {
+        if (fat32_open(file, path) == FAT32_OK) {
+            return true;
+        }
+
+        sleep_ms(250);
+    }
+
+    return false;
+}
+
+static ssize_t platform_file_cookie_read(void *cookie, char *buffer, size_t size)
+{
+    platform_file_cookie_t *file_cookie = cookie;
+    size_t bytes_read = 0;
+
+    if (file_cookie == NULL || buffer == NULL) {
+        return -1;
+    }
+
+    if (size == 0) {
+        return 0;
+    }
+
+    if (file_cookie->is_embedded) {
+        size_t remaining = 0;
+        size_t to_copy = 0;
+
+        if (file_cookie->embedded_pos < file_cookie->embedded_size) {
+            remaining = file_cookie->embedded_size - file_cookie->embedded_pos;
+        }
+        to_copy = (remaining < size) ? remaining : size;
+        if (to_copy > 0) {
+            memcpy(buffer, file_cookie->embedded_data + file_cookie->embedded_pos, to_copy);
+            file_cookie->embedded_pos += to_copy;
+        }
+        return (ssize_t)to_copy;
+    }
+
+    if (fat32_read(&file_cookie->fat32_file, buffer, size, &bytes_read) != FAT32_OK) {
+        return -1;
+    }
+
+    return (ssize_t)bytes_read;
+}
+
+static int platform_file_cookie_seek(void *cookie, off_t *offset, int whence)
+{
+    platform_file_cookie_t *file_cookie = cookie;
+    int64_t base = 0;
+    int64_t target;
+
+    if (file_cookie == NULL || offset == NULL) {
+        return -1;
+    }
+
+    switch (whence) {
+    case SEEK_SET:
+        base = 0;
+        break;
+    case SEEK_CUR:
+        base = file_cookie->is_embedded
+            ? (int64_t)file_cookie->embedded_pos
+            : (int64_t)fat32_tell(&file_cookie->fat32_file);
+        break;
+    case SEEK_END:
+        base = file_cookie->is_embedded
+            ? (int64_t)file_cookie->embedded_size
+            : (int64_t)fat32_size(&file_cookie->fat32_file);
+        break;
+    default:
+        return -1;
+    }
+
+    target = base + (int64_t)(*offset);
+    if (target < 0) {
+        return -1;
+    }
+
+    if (file_cookie->is_embedded) {
+        if ((size_t)target > file_cookie->embedded_size) {
+            return -1;
+        }
+        file_cookie->embedded_pos = (size_t)target;
+    } else {
+        if (fat32_seek(&file_cookie->fat32_file, (uint32_t)target) != FAT32_OK) {
+            return -1;
+        }
+    }
+
+    *offset = (off_t)target;
+    return 0;
+}
+
+static int platform_file_cookie_close(void *cookie)
+{
+    platform_file_cookie_t *file_cookie = cookie;
+
+    if (file_cookie == NULL) {
+        return EOF;
+    }
+
+    if (!file_cookie->is_embedded) {
+        fat32_close(&file_cookie->fat32_file);
+    }
+    free(file_cookie);
+    return 0;
+}
+
 bool platform_embedded_model3_rom_available(void)
 {
 #ifdef PICOCALC_EMBEDDED_MODEL3_ROM
@@ -41,111 +159,70 @@ bool platform_embedded_model3_rom_available(void)
 
 platform_file_t *platform_fopen(const char *path, const char *mode)
 {
-    platform_file_t *file;
-    int attempt;
+    platform_file_cookie_t *cookie;
+    cookie_io_functions_t io_functions;
+    FILE *stream;
 
-    if (path == NULL || mode == NULL) {
+    if (path == NULL || mode == NULL || strcmp(mode, "rb") != 0) {
         return NULL;
     }
 
-    if (strcmp(mode, "rb") != 0) {
-        return NULL;
-    }
-
-    file = malloc(sizeof(*file));
-    if (file == NULL) {
+    cookie = calloc(1, sizeof(*cookie));
+    if (cookie == NULL) {
         return NULL;
     }
 
 #ifdef PICOCALC_EMBEDDED_MODEL3_ROM
     if (is_embedded_model3_path(path) && platform_embedded_model3_rom_available()) {
-        memset(file, 0, sizeof(*file));
-        file->is_embedded = true;
-        file->embedded_data = (const uint8_t *)embedded_model3_rom;
-        file->embedded_size = (size_t)embedded_model3_rom_len;
-        file->embedded_pos = 0;
-        return file;
-    }
+        cookie->is_embedded = true;
+        cookie->embedded_data = (const uint8_t *)embedded_model3_rom;
+        cookie->embedded_size = (size_t)embedded_model3_rom_len;
+        cookie->embedded_pos = 0;
+    } else
 #endif
-
-    memset(file, 0, sizeof(*file));
-
-    for (attempt = 0; attempt < 8; ++attempt) {
-        if (fat32_open(&file->fat32_file, path) == FAT32_OK) {
-            return file;
+    {
+        cookie->is_embedded = false;
+        if (!platform_fat32_open_retry(&cookie->fat32_file, path)) {
+            free(cookie);
+            return NULL;
         }
-
-        sleep_ms(250);
     }
 
-    free(file);
-    return NULL;
+    io_functions.read = platform_file_cookie_read;
+    io_functions.write = NULL;
+    io_functions.seek = platform_file_cookie_seek;
+    io_functions.close = platform_file_cookie_close;
+
+    stream = fopencookie(cookie, "rb", io_functions);
+    if (stream == NULL) {
+        platform_file_cookie_close(cookie);
+        return NULL;
+    }
+
+    setvbuf(stream, NULL, _IOFBF, 1024);
+    return stream;
 }
 
 int platform_getc(platform_file_t *file)
 {
-    unsigned char ch;
-    size_t bytes_read = 0;
-
     if (file == NULL) {
         return EOF;
     }
-
-    if (file->is_embedded) {
-        if (file->embedded_pos >= file->embedded_size) {
-            return EOF;
-        }
-
-        return (int)file->embedded_data[file->embedded_pos++];
-    }
-
-    if (fat32_read(&file->fat32_file, &ch, 1, &bytes_read) != FAT32_OK || bytes_read != 1) {
-        return EOF;
-    }
-
-    return (int)ch;
+    return getc(file);
 }
 
 char *platform_fgets(char *buffer, int size, platform_file_t *file)
 {
-    int i;
-
     if (buffer == NULL || size <= 1 || file == NULL) {
         return NULL;
     }
-
-    for (i = 0; i < size - 1; ++i) {
-        int ch = platform_getc(file);
-
-        if (ch == EOF) {
-            break;
-        }
-
-        buffer[i] = (char)ch;
-        if (buffer[i] == '\n') {
-            ++i;
-            break;
-        }
-    }
-
-    if (i == 0) {
-        return NULL;
-    }
-
-    buffer[i] = '\0';
-    return buffer;
+    return fgets(buffer, size, file);
 }
 
 void platform_rewind(platform_file_t *file)
 {
-    if (file == NULL) {
-        return;
-    }
-
-    if (file->is_embedded) {
-        file->embedded_pos = 0;
-    } else {
-        fat32_seek(&file->fat32_file, 0);
+    if (file != NULL) {
+        rewind(file);
     }
 }
 
@@ -154,10 +231,5 @@ int platform_fclose(platform_file_t *file)
     if (file == NULL) {
         return EOF;
     }
-
-    if (!file->is_embedded) {
-        fat32_close(&file->fat32_file);
-    }
-    free(file);
-    return 0;
+    return fclose(file);
 }

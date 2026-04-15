@@ -124,19 +124,17 @@ That means:
 - audio, cassette, disk, and advanced UI are not integrated yet
 - the firmware now enters the emulator run loop instead of exiting immediately after reset
 
-## Embedded Memory Adaptation
+## Vendor Patch Adaptation
 
-The Pico build now uses a project-owned embedded memory backend instead of linking the desktop-sized `sdltrs` memory file directly.
-
-Details are documented in [embedded-memory.md](/workspaces/PicoCalcTRS/docs/embedded-memory.md).
+The Pico build now uses a vendor+patch flow for the core `sdltrs` files.
 
 In short:
 
-- host builds still use the vendored `sdltrs/src/trs_memory.c`
-- Pico builds use [trs_memory_embedded.c](/workspaces/PicoCalcTRS/firmware/emu/trs_memory_embedded.c)
-- the vendor tree remains untouched
+- upstream sources remain in `third_party/sdltrs/src/*.c`
+- Pico-specific source diffs are maintained as patch files in `patches/sdltrs/*.patch` (currently disk + memory)
+- build copies upstream sources into the build directory, applies patches, then compiles
 
-This is what made the RP2350 firmware link succeed.
+Details are documented in [vendor-patch-workflow.md](/workspaces/PicoCalcTRS/docs/vendor-patch-workflow.md).
 
 ## ROM Placement
 

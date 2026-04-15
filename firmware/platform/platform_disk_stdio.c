@@ -27,6 +27,20 @@ typedef struct {
     bool append;
 } picocalc_disk_mode_t;
 
+static bool picocalc_disk_should_retry(fat32_error_t result)
+{
+    switch (result) {
+    case FAT32_ERROR_NO_CARD:
+    case FAT32_ERROR_NOT_MOUNTED:
+    case FAT32_ERROR_INIT_FAILED:
+    case FAT32_ERROR_READ_FAILED:
+    case FAT32_ERROR_WRITE_FAILED:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static void picocalc_disk_set_errno_from_fat32(fat32_error_t result)
 {
     switch (result) {
@@ -123,8 +137,13 @@ static bool picocalc_disk_open_file(fat32_file_t *file, const char *path)
     int attempt;
 
     for (attempt = 0; attempt < 8; ++attempt) {
-        if (fat32_open(file, path) == FAT32_OK) {
+        fat32_error_t result = fat32_open(file, path);
+        if (result == FAT32_OK) {
             return true;
+        }
+
+        if (!picocalc_disk_should_retry(result)) {
+            break;
         }
 
         sleep_ms(250);
@@ -147,6 +166,10 @@ static bool picocalc_disk_create_file(fat32_file_t *file, const char *path)
             if (fat32_delete(path) == FAT32_OK && fat32_create(file, path) == FAT32_OK) {
                 return true;
             }
+        }
+
+        if (!picocalc_disk_should_retry(result)) {
+            break;
         }
 
         sleep_ms(250);
@@ -322,7 +345,11 @@ FILE *picocalc_disk_fopen(const char *path, const char *mode)
         return NULL;
     }
 
-    setvbuf(stream, NULL, _IONBF, 0);
+    /*
+     * Buffered I/O dramatically improves sector-write throughput because the
+     * FDC path currently emits many putc() calls while formatting/writing.
+     */
+    setvbuf(stream, NULL, _IOFBF, 4096);
 
     return stream;
 }

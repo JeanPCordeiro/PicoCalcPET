@@ -9,6 +9,7 @@
 #include "trs_disk.h"
 #include "trs_memory.h"
 #include "error.h"
+#include "picocalc_reset_policy.h"
 
 const char *program_name = "picocalc_trs_scaffold";
 volatile bool user_interrupt;
@@ -47,8 +48,16 @@ void grafyx_write_xoffset(int value) { (void)value; }
 void grafyx_write_yoffset(int value) { (void)value; }
 void grafyx_write_overlay(int value) { (void)value; }
 void grafyx_m3_write_mode(int value) { (void)value; }
-Uint8 grafyx_m3_read_byte(unsigned int position) { (void)position; return 0; }
-int grafyx_m3_write_byte(unsigned int position, int value) { (void)position; (void)value; return 0; }
+Uint8 grafyx_m3_read_byte(unsigned int position)
+{
+    return mem_video_page_read((int)position);
+}
+
+int grafyx_m3_write_byte(unsigned int position, int value)
+{
+    (void)mem_video_page_write((int)position, (Uint8)value);
+    return 0;
+}
 void hrg_write_data(int address, int data) { (void)address; (void)data; }
 int hrg_read_data(int address) { (void)address; return 0; }
 int lowe_le18;
@@ -85,10 +94,47 @@ static void emt_set_error(int errnum)
     Z80_F &= ~ZERO_MASK;
 }
 
+static bool emt_is_cmd_s(const char *cmd)
+{
+    size_t i;
+
+    if (cmd == NULL) {
+        return false;
+    }
+
+    i = 0;
+    while (cmd[i] == ' ' || cmd[i] == '\t') {
+        ++i;
+    }
+
+    if (cmd[i] != 'S' && cmd[i] != 's') {
+        return false;
+    }
+    ++i;
+
+    while (cmd[i] == ' ' || cmd[i] == '\t') {
+        ++i;
+    }
+
+    return cmd[i] == '\0';
+}
+
 void do_emt_system(void)
 {
-    emt_set_error(ENOSYS);
-    Z80_BC = 0xFFFF;
+    const char *cmd = (const char *)mem_pointer(Z80_HL, 0);
+
+    /*
+     * Pico firmware intentionally does not expose host-shell execution.
+     * For CMD"S" compatibility, interpret a bare S as "press reset button".
+     */
+    if (emt_is_cmd_s(cmd)) {
+        trs_reset(0);
+        picocalc_apply_post_reset_policy();
+    }
+
+    Z80_A = 0;
+    Z80_F |= ZERO_MASK;
+    Z80_BC = 0;
 }
 
 void do_emt_mouse(void)
@@ -183,13 +229,50 @@ void do_emt_strerror(void)
 
 void do_emt_time(void)
 {
-    /*
-     * Deliberately unsupported for PicoCalc Model III.
-     * Return a deterministic ENOSYS result instead of leaving stale flags.
-     */
-    emt_set_error(ENOSYS);
-    Z80_BC = 0xFFFF;
-    Z80_DE = 0xFFFF;
+    time_t now = time(0) + trs_timeoffset;
+
+    if (Z80_A == 1) {
+#if __alpha
+        const struct tm *loctm = localtime(&now);
+        now += loctm->tm_gmtoff;
+#else
+        const struct tm loctm = *(localtime(&now));
+        const struct tm gmtm = *(gmtime(&now));
+        const int daydiff = loctm.tm_mday - gmtm.tm_mday;
+
+        now += (loctm.tm_sec - gmtm.tm_sec)
+            + (loctm.tm_min - gmtm.tm_min) * 60
+            + (loctm.tm_hour - gmtm.tm_hour) * 3600;
+
+        switch (daydiff) {
+        case 0:
+        case 1:
+        case -1:
+            now += 24 * 3600 * daydiff;
+            break;
+        case 30:
+        case 29:
+        case 28:
+        case 27:
+            now -= 24 * 3600;
+            break;
+        case -30:
+        case -29:
+        case -28:
+        case -27:
+            now += 24 * 3600;
+            break;
+        default:
+            error("trouble computing local time in emt_time");
+            break;
+        }
+#endif
+    } else if (Z80_A != 0) {
+        error("unsupported function code %d to emt_time", Z80_A);
+    }
+
+    Z80_BC = (Uint16)((now >> 16) & 0xFFFF);
+    Z80_DE = (Uint16)(now & 0xFFFF);
 }
 
 void do_emt_opendir(void)
@@ -234,6 +317,7 @@ void do_emt_misc(void)
         break;
     case 3:
         trs_reset(0);
+        picocalc_apply_post_reset_policy();
         break;
     case 4:
         Z80_HL = 0;
@@ -294,7 +378,7 @@ void do_emt_misc(void)
         lowercase = Z80_HL ? 1 : 0;
         break;
     default:
-        emt_set_error(ENOSYS);
+        error("unsupported function code %d to emt_misc", Z80_A);
         break;
     }
 }

@@ -5,6 +5,60 @@ message(STATUS "Vendor integration is documented under docs/")
 set(SDLTRS_SRC_DIR "${SDLTRS_DIR}/src")
 set(PICOCALC_STARTER_DRIVERS_DIR "${PICOCALC_TEXT_STARTER_DIR}/drivers")
 set(PICOCALC_AUDIO_PIO "${PICOCALC_STARTER_DRIVERS_DIR}/audio.pio")
+set(PICOCALC_TRS_INTERRUPT_SOURCE "${SDLTRS_SRC_DIR}/trs_interrupt.c")
+set(PICOCALC_TRS_CMD_ROM_SOURCE "${SDLTRS_SRC_DIR}/trs_cmd_rom.c")
+set(PICOCALC_TRS_CMD_ROM_SHIM_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/compat/sdltrs_cmd_rom_stdio_shim.h")
+set(PICOCALC_TRS_DISK_SOURCE "${SDLTRS_SRC_DIR}/trs_disk.c")
+set(PICOCALC_TRS_MEMORY_SOURCE "${SDLTRS_SRC_DIR}/trs_memory.c")
+
+if(PICOCALC_PLATFORM)
+    set(PICOCALC_PATCHED_SDLTRS_SRC_DIR "${CMAKE_CURRENT_BINARY_DIR}/patched-sdltrs/src")
+    file(MAKE_DIRECTORY "${PICOCALC_PATCHED_SDLTRS_SRC_DIR}")
+
+    find_program(GIT_EXECUTABLE git)
+    if(NOT GIT_EXECUTABLE)
+        message(FATAL_ERROR "git is required to apply local sdltrs patches")
+    endif()
+
+    function(picocalc_prepare_patched_sdltrs_source source_name patch_relative_path output_var)
+        set(patched_source "${PICOCALC_PATCHED_SDLTRS_SRC_DIR}/${source_name}")
+        set(upstream_source "${SDLTRS_SRC_DIR}/${source_name}")
+        set(source_patch "${CMAKE_SOURCE_DIR}/${patch_relative_path}")
+
+        file(COPY "${upstream_source}" DESTINATION "${PICOCALC_PATCHED_SDLTRS_SRC_DIR}")
+
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply --whitespace=nowarn -p1 "${source_patch}"
+            WORKING_DIRECTORY "${PICOCALC_PATCHED_SDLTRS_SRC_DIR}"
+            RESULT_VARIABLE source_patch_result
+            ERROR_VARIABLE source_patch_error
+        )
+        if(NOT source_patch_result EQUAL 0)
+            message(FATAL_ERROR
+                "Failed to apply ${source_patch} to ${source_name}:\n"
+                "${source_patch_error}")
+        endif()
+
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${source_patch}"
+            "${upstream_source}"
+        )
+        set(${output_var} "${patched_source}" PARENT_SCOPE)
+    endfunction()
+
+    picocalc_prepare_patched_sdltrs_source(
+        "trs_disk.c"
+        "patches/sdltrs/0001-picocalc-trs_disk.patch"
+        PICOCALC_TRS_DISK_SOURCE
+    )
+    picocalc_prepare_patched_sdltrs_source(
+        "trs_memory.c"
+        "patches/sdltrs/0004-picocalc-trs_memory.patch"
+        PICOCALC_TRS_MEMORY_SOURCE
+    )
+
+    message(STATUS "Using patched vendor sdltrs core sources (disk/memory) from ${PICOCALC_PATCHED_SDLTRS_SRC_DIR}")
+endif()
 
 set(SDLTRS_CORE_SOURCES
     ${SDLTRS_SRC_DIR}/error.c
@@ -17,17 +71,17 @@ set(SDLTRS_CORE_SOURCES
 
 if(PICOCALC_PLATFORM)
     list(APPEND SDLTRS_CORE_SOURCES
-        ${CMAKE_CURRENT_SOURCE_DIR}/emu/trs_interrupt_embedded.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/emu/trs_cmd_rom_embedded.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/emu/trs_disk_embedded.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/emu/trs_memory_embedded.c
+        ${PICOCALC_TRS_INTERRUPT_SOURCE}
+        ${PICOCALC_TRS_CMD_ROM_SOURCE}
+        ${PICOCALC_TRS_DISK_SOURCE}
+        ${PICOCALC_TRS_MEMORY_SOURCE}
     )
 else()
     list(APPEND SDLTRS_CORE_SOURCES
-        ${SDLTRS_SRC_DIR}/trs_interrupt.c
-        ${SDLTRS_SRC_DIR}/trs_cmd_rom.c
+        ${PICOCALC_TRS_INTERRUPT_SOURCE}
+        ${PICOCALC_TRS_CMD_ROM_SOURCE}
         ${SDLTRS_SRC_DIR}/trs_disk.c
-        ${SDLTRS_SRC_DIR}/trs_memory.c
+        ${PICOCALC_TRS_MEMORY_SOURCE}
     )
 endif()
 
@@ -35,6 +89,7 @@ add_library(sdltrs_frontend_stubs STATIC
     compat/sdl_compat.c
     frontend/trs_frontend_stub.c
     frontend/trs_keyboard_stub.c
+    emu/picocalc_reset_policy.c
     emu/sdltrs_peripheral_stubs.c
 )
 
@@ -143,6 +198,14 @@ target_compile_definitions(sdltrs_core PUBLIC
 )
 
 if(PICOCALC_PLATFORM)
+    set_source_files_properties(${PICOCALC_TRS_CMD_ROM_SOURCE}
+        PROPERTIES COMPILE_OPTIONS "-include;${PICOCALC_TRS_CMD_ROM_SHIM_HEADER}"
+    )
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${PICOCALC_TRS_CMD_ROM_SHIM_HEADER}"
+        "${PICOCALC_TRS_CMD_ROM_SOURCE}"
+    )
+
     target_compile_definitions(sdltrs_core PUBLIC PICOCALC_PLATFORM=1)
     target_include_directories(sdltrs_core PUBLIC
         ${PICOCALC_TEXT_STARTER_DIR}

@@ -406,6 +406,13 @@ bool platform_file_exists(const char *path)
         }
 
         picocalc_last_file_error = result;
+        if (result == FAT32_ERROR_FILE_NOT_FOUND ||
+            result == FAT32_ERROR_DIR_NOT_FOUND ||
+            result == FAT32_ERROR_INVALID_PATH ||
+            result == FAT32_ERROR_NOT_A_FILE ||
+            result == FAT32_ERROR_NOT_A_DIRECTORY) {
+            break;
+        }
         sleep_ms(250);
     }
 
