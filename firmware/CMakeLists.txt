@@ -2,6 +2,7 @@ message(STATUS "Entering firmware scaffold")
 message(STATUS "Local firmware code lives under ${CMAKE_CURRENT_SOURCE_DIR}")
 message(STATUS "Vendor integration is documented under docs/")
 option(PICOCALC_ENABLE_FDC_DIAG "Enable on-device FDC diagnostic status tracing" OFF)
+option(PICOCALC_ENABLE_DISK_FAULT_DIAG "Enable verbose on-device disk fault diagnostics" OFF)
 
 set(SDLTRS_SRC_DIR "${SDLTRS_DIR}/src")
 set(PICOCALC_STARTER_DRIVERS_DIR "${PICOCALC_TEXT_STARTER_DIR}/drivers")
@@ -11,10 +12,13 @@ set(PICOCALC_TRS_CMD_ROM_SOURCE "${SDLTRS_SRC_DIR}/trs_cmd_rom.c")
 set(PICOCALC_TRS_CMD_ROM_SHIM_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/compat/sdltrs_cmd_rom_stdio_shim.h")
 set(PICOCALC_TRS_DISK_SOURCE "${SDLTRS_SRC_DIR}/trs_disk.c")
 set(PICOCALC_TRS_MEMORY_SOURCE "${SDLTRS_SRC_DIR}/trs_memory.c")
+set(PICOCALC_FAT32_SOURCE "${PICOCALC_STARTER_DRIVERS_DIR}/fat32.c")
 
 if(PICOCALC_PLATFORM)
     set(PICOCALC_PATCHED_SDLTRS_SRC_DIR "${CMAKE_CURRENT_BINARY_DIR}/patched-sdltrs/src")
+    set(PICOCALC_PATCHED_STARTER_SRC_DIR "${CMAKE_CURRENT_BINARY_DIR}/patched-picocalc-starter")
     file(MAKE_DIRECTORY "${PICOCALC_PATCHED_SDLTRS_SRC_DIR}")
+    file(MAKE_DIRECTORY "${PICOCALC_PATCHED_STARTER_SRC_DIR}")
 
     find_program(PATCH_EXECUTABLE patch)
     if(NOT PATCH_EXECUTABLE)
@@ -49,6 +53,34 @@ if(PICOCALC_PLATFORM)
         set(${output_var} "${patched_source}" PARENT_SCOPE)
     endfunction()
 
+    function(picocalc_prepare_patched_starter_source source_name patch_relative_path output_var)
+        set(patched_source "${PICOCALC_PATCHED_STARTER_SRC_DIR}/${source_name}")
+        set(upstream_source "${PICOCALC_STARTER_DRIVERS_DIR}/${source_name}")
+        set(source_patch "${CMAKE_SOURCE_DIR}/${patch_relative_path}")
+
+        file(COPY "${upstream_source}" DESTINATION "${PICOCALC_PATCHED_STARTER_SRC_DIR}")
+
+        execute_process(
+            COMMAND "${PATCH_EXECUTABLE}" -s -p1 -i "${source_patch}"
+            WORKING_DIRECTORY "${PICOCALC_PATCHED_STARTER_SRC_DIR}"
+            RESULT_VARIABLE source_patch_result
+            OUTPUT_VARIABLE source_patch_output
+            ERROR_VARIABLE source_patch_error
+        )
+        if(NOT source_patch_result EQUAL 0)
+            message(FATAL_ERROR
+                "Failed to apply ${source_patch} to ${source_name}:\n"
+                "${source_patch_output}\n"
+                "${source_patch_error}")
+        endif()
+
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${source_patch}"
+            "${upstream_source}"
+        )
+        set(${output_var} "${patched_source}" PARENT_SCOPE)
+    endfunction()
+
     picocalc_prepare_patched_sdltrs_source(
         "trs_disk.c"
         "patches/sdltrs/0001-picocalc-trs_disk.patch"
@@ -59,8 +91,14 @@ if(PICOCALC_PLATFORM)
         "patches/sdltrs/0004-picocalc-trs_memory.patch"
         PICOCALC_TRS_MEMORY_SOURCE
     )
+    picocalc_prepare_patched_starter_source(
+        "fat32.c"
+        "patches/picocalc-text-starter/0001-picocalc-fat32-next-free-wrap.patch"
+        PICOCALC_FAT32_SOURCE
+    )
 
     message(STATUS "Using patched vendor sdltrs core sources (disk/memory) from ${PICOCALC_PATCHED_SDLTRS_SRC_DIR}")
+    message(STATUS "Using patched picocalc fat32 source from ${PICOCALC_PATCHED_STARTER_SRC_DIR}")
 endif()
 
 set(SDLTRS_CORE_SOURCES
@@ -106,6 +144,11 @@ if(PICOCALC_ENABLE_FDC_DIAG)
 else()
     target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_ENABLE_FDC_DIAG=0)
 endif()
+if(PICOCALC_ENABLE_DISK_FAULT_DIAG)
+    target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_ENABLE_DISK_FAULT_DIAG=1)
+else()
+    target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_ENABLE_DISK_FAULT_DIAG=0)
+endif()
 
 if(PICOCALC_PLATFORM)
     set(EMBEDDED_MODEL3_ROM_PATH "${CMAKE_SOURCE_DIR}/roms/model3.rom")
@@ -123,7 +166,7 @@ if(PICOCALC_PLATFORM)
         ${PICOCALC_STARTER_DRIVERS_DIR}/audio.c
         platform/platform_picocalc.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/display.c
-        ${PICOCALC_STARTER_DRIVERS_DIR}/fat32.c
+        ${PICOCALC_FAT32_SOURCE}
         ${PICOCALC_STARTER_DRIVERS_DIR}/font-5x10.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/keyboard.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/lcd.c
@@ -204,6 +247,11 @@ target_include_directories(sdltrs_core PUBLIC
 target_compile_definitions(sdltrs_core PUBLIC
     ROM_PATH=""
 )
+if(PICOCALC_ENABLE_DISK_FAULT_DIAG)
+    target_compile_definitions(sdltrs_core PUBLIC PICOCALC_ENABLE_DISK_FAULT_DIAG=1)
+else()
+    target_compile_definitions(sdltrs_core PUBLIC PICOCALC_ENABLE_DISK_FAULT_DIAG=0)
+endif()
 
 if(PICOCALC_PLATFORM)
     set_source_files_properties(${PICOCALC_TRS_CMD_ROM_SOURCE}

@@ -1,0 +1,27 @@
+--- a/sdcard.c
++++ b/sdcard.c
+@@ -192,16 +192,19 @@
+ 
+     // Check data response
+     response = sd_spi_write_read(0xFF) & 0x1F;
+-    sd_cs_deselect();
+-
+     if (response != 0x05)
+     {
++        sd_cs_deselect();
++        return SD_ERROR_WRITE_FAILED;
++    }
++
++    // Wait for card-internal programming to finish with CS asserted.
++    if (!sd_wait_ready())
++    {
++        sd_cs_deselect();
+         return SD_ERROR_WRITE_FAILED;
+     }
+ 
+-    // Wait for programming to finish
+-    sd_cs_select();
+-    sd_wait_ready();
+     sd_cs_deselect();
+ 
+     return SD_OK;

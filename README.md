@@ -61,6 +61,12 @@ The Pico SDK build notes live in [docs/pico-build.md](/workspaces/PicoCalcTRS/do
 
 The stable flash artifact produced by the helper script is [dist/picocalc_trs_scaffold.uf2](/workspaces/PicoCalcTRS/dist/picocalc_trs_scaffold.uf2).
 
+Build profile toggles (helper script env vars):
+
+- default release (quiet): `./scripts/build-pico-uf2.sh`
+- enable FDC trace lines: `PICOCALC_ENABLE_FDC_DIAG=ON ./scripts/build-pico-uf2.sh`
+- enable fault diagnostics (`D2 E/W/U`, `DSK ...`): `PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-pico-uf2.sh`
+
 Vendor reference notes:
 
 - [docs/picocalc-text-starter.md](/workspaces/PicoCalcTRS/docs/picocalc-text-starter.md)

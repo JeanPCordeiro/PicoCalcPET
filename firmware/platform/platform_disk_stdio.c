@@ -12,6 +12,13 @@
 #include "pico/stdlib.h"
 
 #include "drivers/fat32.h"
+#ifndef PICOCALC_ENABLE_DISK_FAULT_DIAG
+#define PICOCALC_ENABLE_DISK_FAULT_DIAG 0
+#endif
+
+#if PICOCALC_ENABLE_DISK_FAULT_DIAG
+#include "platform/platform.h"
+#endif
 
 typedef struct {
     fat32_file_t file;
@@ -26,6 +33,25 @@ typedef struct {
     bool truncate;
     bool append;
 } picocalc_disk_mode_t;
+
+static void picocalc_disk_report_diag(const char *op, fat32_error_t result, size_t size, uint32_t pos)
+{
+#if PICOCALC_ENABLE_DISK_FAULT_DIAG
+    char line[80];
+    snprintf(line, sizeof(line), "DSK %s e:%d s:%u p:%lu sd:%d",
+             op ? op : "?",
+             (int)result,
+             (unsigned int)size,
+             (unsigned long)pos,
+             platform_sd_detect_state());
+    platform_status_write_line(2, line);
+#else
+    (void)op;
+    (void)result;
+    (void)size;
+    (void)pos;
+#endif
+}
 
 static bool picocalc_disk_should_retry(fat32_error_t result)
 {
@@ -184,13 +210,23 @@ static ssize_t picocalc_disk_cookie_read(void *cookie, char *buffer, size_t size
     size_t bytes_read = 0;
     fat32_error_t result;
 
-    if (disk_cookie == NULL || buffer == NULL) {
+    if (disk_cookie == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (size == 0) {
+        return 0;
+    }
+
+    if (buffer == NULL) {
         errno = EINVAL;
         return -1;
     }
 
     result = fat32_read(&disk_cookie->file, buffer, size, &bytes_read);
     if (result != FAT32_OK) {
+        picocalc_disk_report_diag("R", result, size, fat32_tell(&disk_cookie->file));
         picocalc_disk_set_errno_from_fat32(result);
         return -1;
     }
@@ -201,10 +237,21 @@ static ssize_t picocalc_disk_cookie_read(void *cookie, char *buffer, size_t size
 static ssize_t picocalc_disk_cookie_write(void *cookie, const char *buffer, size_t size)
 {
     picocalc_disk_cookie_t *disk_cookie = cookie;
+    const uint32_t write_start = (disk_cookie != NULL) ? fat32_tell(&disk_cookie->file) : 0;
     size_t bytes_written = 0;
     fat32_error_t result;
+    int attempt;
 
-    if (disk_cookie == NULL || buffer == NULL) {
+    if (disk_cookie == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (size == 0) {
+        return 0;
+    }
+
+    if (buffer == NULL) {
         errno = EINVAL;
         return -1;
     }
@@ -215,17 +262,36 @@ static ssize_t picocalc_disk_cookie_write(void *cookie, const char *buffer, size
     }
 
     if (disk_cookie->append && fat32_seek(&disk_cookie->file, fat32_size(&disk_cookie->file)) != FAT32_OK) {
+        picocalc_disk_report_diag("A", FAT32_ERROR_INVALID_POSITION, 0, fat32_tell(&disk_cookie->file));
         errno = EIO;
         return -1;
     }
 
-    result = fat32_write(&disk_cookie->file, buffer, size, &bytes_written);
-    if (result != FAT32_OK) {
-        picocalc_disk_set_errno_from_fat32(result);
-        return -1;
+    for (attempt = 0; attempt < 4; ++attempt) {
+        bytes_written = 0;
+        result = fat32_write(&disk_cookie->file, buffer, size, &bytes_written);
+        if (result == FAT32_OK && bytes_written == size) {
+            return (ssize_t)bytes_written;
+        }
+
+        if (result == FAT32_OK) {
+            result = FAT32_ERROR_WRITE_FAILED;
+        }
+
+        if (!picocalc_disk_should_retry(result)) {
+            break;
+        }
+
+        if (fat32_seek(&disk_cookie->file, write_start) != FAT32_OK) {
+            result = FAT32_ERROR_INVALID_POSITION;
+            break;
+        }
+        sleep_ms(8 * (attempt + 1));
     }
 
-    return (ssize_t)bytes_written;
+    picocalc_disk_report_diag("W", result, size, fat32_tell(&disk_cookie->file));
+    picocalc_disk_set_errno_from_fat32(result);
+    return -1;
 }
 
 static int picocalc_disk_cookie_seek(void *cookie, off_t *offset, int whence)
@@ -261,6 +327,7 @@ static int picocalc_disk_cookie_seek(void *cookie, off_t *offset, int whence)
     }
 
     if (fat32_seek(&disk_cookie->file, (uint32_t)target) != FAT32_OK) {
+        picocalc_disk_report_diag("S", FAT32_ERROR_INVALID_POSITION, 0, (uint32_t)target);
         errno = EIO;
         return -1;
     }

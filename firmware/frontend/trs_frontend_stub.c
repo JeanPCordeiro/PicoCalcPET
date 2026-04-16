@@ -11,6 +11,10 @@
 #define PICOCALC_ENABLE_FDC_DIAG 0
 #endif
 
+#ifndef PICOCALC_ENABLE_DISK_FAULT_DIAG
+#define PICOCALC_ENABLE_DISK_FAULT_DIAG 0
+#endif
+
 char romfile1[FILENAME_MAX];
 char romfile3[FILENAME_MAX];
 char romfile4p[FILENAME_MAX];
@@ -73,6 +77,7 @@ static unsigned int trs_diag_refresh_count;
 static unsigned int trs_diag_cursor_count;
 static unsigned int trs_diag_oob_count;
 static unsigned int trs_diag_publish_tick;
+static char trs_diag_disk_fault_line[80];
 #if PICOCALC_ENABLE_FDC_DIAG
 static Uint8 trs_diag_fdc_tag = '?';
 static Uint8 trs_diag_fdc_value;
@@ -199,11 +204,23 @@ static void trs_diag_publish(int force)
              (unsigned long)trs_diag_fdc_command_count,
              (unsigned long)trs_diag_fdc_notrdy_count);
 #else
+#if PICOCALC_ENABLE_DISK_FAULT_DIAG
+    if (trs_diag_disk_fault_line[0] != '\0') {
+        snprintf(line2, sizeof(line2), "%s", trs_diag_disk_fault_line);
+    } else {
+        snprintf(line2, sizeof(line2), "D2 R:%lu O:%lu@%04u F:%c%c%c%c",
+                 (unsigned long)trs_diag_refresh_count,
+                 (unsigned long)trs_diag_oob_count,
+                 (unsigned int)trs_diag_oob_position,
+                 flag_expanded, flag_inverse, flag_alternate, flag_reverse);
+    }
+#else
     snprintf(line2, sizeof(line2), "D2 R:%lu O:%lu@%04u F:%c%c%c%c",
              (unsigned long)trs_diag_refresh_count,
              (unsigned long)trs_diag_oob_count,
              (unsigned int)trs_diag_oob_position,
              flag_expanded, flag_inverse, flag_alternate, flag_reverse);
+#endif
 #endif
 
     platform_status_write_line(0, line0);
@@ -265,6 +282,34 @@ void picocalc_trs_diag_disk_event(Uint8 tag, Uint8 value, Uint8 status,
         trs_diag_publish_fdc_line();
     }
 #else
+#if PICOCALC_ENABLE_DISK_FAULT_DIAG
+    int keep_existing_error = 0;
+
+    if (trs_diag_disk_fault_line[0] == 'D' &&
+        trs_diag_disk_fault_line[1] == '2' &&
+        trs_diag_disk_fault_line[2] == ' ' &&
+        trs_diag_disk_fault_line[3] == 'E' &&
+        tag != 'E') {
+        keep_existing_error = 1;
+    }
+
+    if (keep_existing_error) {
+        return;
+    }
+
+    if (tag == 'W' || tag == 'N' || tag == 'U' || tag == 'E') {
+        snprintf(trs_diag_disk_fault_line, sizeof(trs_diag_disk_fault_line),
+                 "D2 %c CMD:%02X ST:%02X D:%d/%d/%d PC:%04X",
+                 (char)tag,
+                 (unsigned int)value,
+                 (unsigned int)status,
+                 drive,
+                 side,
+                 density,
+                 pc & 0xFFFFu);
+        platform_status_write_line(2, trs_diag_disk_fault_line);
+    }
+#else
     (void)tag;
     (void)value;
     (void)status;
@@ -272,6 +317,7 @@ void picocalc_trs_diag_disk_event(Uint8 tag, Uint8 value, Uint8 status,
     (void)side;
     (void)density;
     (void)pc;
+#endif
 #endif
 }
 
@@ -302,6 +348,7 @@ void trs_screen_init(int resize)
     if (trs_screen_chars > TRS_SCREEN_BUFFER_CELLS) {
         trs_screen_chars = TRS_SCREEN_BUFFER_CELLS;
     }
+    trs_diag_disk_fault_line[0] = '\0';
     trs_clear_hidden_cells();
     platform_screen_configure(trs_screen_cols, trs_screen_rows);
     trs_screen_refresh();
@@ -311,6 +358,7 @@ void trs_screen_init(int resize)
 void trs_screen_reset(void)
 {
     trs_fill_screen(' ');
+    trs_diag_disk_fault_line[0] = '\0';
     trs_cursor_position = UINT_MAX;
     trs_cursor_visible = 0;
     trs_cursor_start = 0;
