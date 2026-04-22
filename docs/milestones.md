@@ -56,3 +56,22 @@ Status: `partially complete`
 ### Remaining
 - Final verification of semigraphics edge cases across app set.
 - Optional cleanup/refactor of frontend rendering internals.
+
+---
+
+## M4 - OSD Control Plane
+
+Status: `planned`
+
+### Goal
+Add an in-firmware OSD to manage boot media and runtime emulator controls directly on PicoCalc.
+
+### Scope
+- startup OSD boot chooser
+- runtime hotkey OSD
+- `d0`/`d1` mount/eject/select flow
+- reset/apply semantics for media changes
+- persistent last-used profile
+
+### Spec
+- [osd-system-spec.md](/workspaces/PicoCalcTRS/docs/osd-system-spec.md)

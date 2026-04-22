@@ -62,6 +62,7 @@ Current firmware status is beyond initial bring-up:
 ## Roadmap
 
 The detailed porting plan lives in [docs/porting-plan.md](/workspaces/PicoCalcTRS/docs/porting-plan.md).
+The OSD control-plane spec lives in [docs/osd-system-spec.md](/workspaces/PicoCalcTRS/docs/osd-system-spec.md).
 
 The vendor integration specification lives in [docs/vendor-integration.md](/workspaces/PicoCalcTRS/docs/vendor-integration.md).
 

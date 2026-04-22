@@ -153,6 +153,15 @@ The firmware currently looks for a Model III ROM in this order:
 
 On PicoCalc, the existence checks are routed through the FAT32 layer.
 
+## Disk Placement
+
+Current disk root convention for Pico firmware is:
+
+- `/TRS80/DISKS/disk0.dmk`
+- `/TRS80/DISKS/disk1.dmk`
+
+This path is intended to be shared by emulator auto-mount behavior and future OSD media selection.
+
 ## Suggested Workflow
 
 1. initialize submodules
