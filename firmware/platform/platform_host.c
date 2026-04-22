@@ -5,6 +5,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <strings.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 typedef struct {
     uint8_t ch;
@@ -133,4 +136,69 @@ int platform_sd_detect_state(void)
 bool platform_sd_card_present(void)
 {
     return false;
+}
+
+int platform_list_disk_images(const char *root, char *paths, int path_stride, int max_paths)
+{
+    DIR *dir;
+    struct dirent *entry;
+    struct stat st;
+    const char *extensions[] = { ".dmk", ".dsk", ".jv1", ".jv3" };
+    size_t i;
+    int count = 0;
+    size_t root_len;
+    int has_trailing_slash;
+
+    if (root == NULL || root[0] == '\0' || paths == NULL || path_stride <= 1 || max_paths <= 0) {
+        return -1;
+    }
+
+    dir = opendir(root);
+    if (dir == NULL) {
+        return -1;
+    }
+
+    root_len = strlen(root);
+    has_trailing_slash = (root_len > 0 && root[root_len - 1] == '/');
+
+    while ((entry = readdir(dir)) != NULL) {
+        const char *dot;
+        int supported = 0;
+        char full_path[512];
+
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        snprintf(full_path, sizeof(full_path), "%s%s%s",
+                 root, has_trailing_slash ? "" : "/", entry->d_name);
+        full_path[sizeof(full_path) - 1] = '\0';
+        if (stat(full_path, &st) != 0 || !S_ISREG(st.st_mode)) {
+            continue;
+        }
+
+        dot = strrchr(entry->d_name, '.');
+        if (dot == NULL) {
+            continue;
+        }
+        for (i = 0; i < (sizeof(extensions) / sizeof(extensions[0])); ++i) {
+            if (strcasecmp(dot, extensions[i]) == 0) {
+                supported = 1;
+                break;
+            }
+        }
+        if (!supported) {
+            continue;
+        }
+
+        if (count < max_paths) {
+            char *slot = paths + (count * path_stride);
+            snprintf(slot, (size_t)path_stride, "%s", full_path);
+            slot[path_stride - 1] = '\0';
+        }
+        count++;
+    }
+
+    closedir(dir);
+    return count;
 }

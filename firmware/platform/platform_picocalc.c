@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
+#include <strings.h>
 
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
@@ -457,4 +459,80 @@ int platform_sd_detect_state(void)
 bool platform_sd_card_present(void)
 {
     return sd_card_present();
+}
+
+int platform_list_disk_images(const char *root, char *paths, int path_stride, int max_paths)
+{
+    fat32_file_t dir;
+    fat32_entry_t entry;
+    fat32_error_t result;
+    int count = 0;
+    const char *extensions[] = { ".dmk", ".dsk", ".jv1", ".jv3" };
+    size_t i;
+    size_t root_len;
+    int has_trailing_slash;
+
+    if (root == NULL || root[0] == '\0' ||
+        paths == NULL || path_stride <= 1 || max_paths <= 0) {
+        return -1;
+    }
+
+    result = fat32_open(&dir, root);
+    if (result != FAT32_OK) {
+        picocalc_last_file_error = result;
+        return -1;
+    }
+
+    root_len = strlen(root);
+    has_trailing_slash = (root_len > 0 && root[root_len - 1] == '/');
+
+    for (;;) {
+        int supported = 0;
+        const char *dot;
+
+        result = fat32_dir_read(&dir, &entry);
+        if (result != FAT32_OK) {
+            fat32_close(&dir);
+            picocalc_last_file_error = result;
+            return -1;
+        }
+
+        if (entry.filename[0] == '\0') {
+            break;
+        }
+
+        if (entry.attr & (FAT32_ATTR_VOLUME_ID | FAT32_ATTR_HIDDEN | FAT32_ATTR_SYSTEM)) {
+            continue;
+        }
+        if (entry.attr & FAT32_ATTR_DIRECTORY) {
+            continue;
+        }
+
+        dot = strrchr(entry.filename, '.');
+        if (dot == NULL) {
+            continue;
+        }
+
+        for (i = 0; i < (sizeof(extensions) / sizeof(extensions[0])); ++i) {
+            if (strcasecmp(dot, extensions[i]) == 0) {
+                supported = 1;
+                break;
+            }
+        }
+        if (!supported) {
+            continue;
+        }
+
+        if (count < max_paths) {
+            char *slot = paths + (count * path_stride);
+            snprintf(slot, (size_t)path_stride, "%s%s%s",
+                     root, has_trailing_slash ? "" : "/", entry.filename);
+            slot[path_stride - 1] = '\0';
+        }
+        count++;
+    }
+
+    fat32_close(&dir);
+    picocalc_last_file_error = FAT32_OK;
+    return count;
 }

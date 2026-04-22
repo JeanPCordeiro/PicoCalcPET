@@ -6,6 +6,7 @@
 #include "trs.h"
 #include "trs_keyboard_internal.h"
 #include "platform/platform.h"
+#include "frontend/osd_menu.h"
 
 #ifndef PICOCALC_ENABLE_FDC_DIAG
 #define PICOCALC_ENABLE_FDC_DIAG 0
@@ -508,6 +509,10 @@ void trs_get_event(int wait)
     int keycode;
 
     if (platform_poll_key(&keycode, wait)) {
+        if (keycode == PLATFORM_KEY_F4) {
+            osd_runtime_menu();
+            return;
+        }
         trs_key_event(keycode);
     }
 }

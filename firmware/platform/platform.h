@@ -47,5 +47,6 @@ int platform_last_file_error_code(void);
 const char *platform_last_file_error(void);
 int platform_sd_detect_state(void);
 bool platform_sd_card_present(void);
+int platform_list_disk_images(const char *root, char *paths, int path_stride, int max_paths);
 
 #endif
