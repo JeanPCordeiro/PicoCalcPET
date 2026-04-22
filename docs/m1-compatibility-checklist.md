@@ -12,6 +12,12 @@ or:
 ./scripts/build-pico-uf2.sh
 ```
 
+Optional debug builds:
+
+```bash
+PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-pico-uf2.sh
+```
+
 ## Test Assets
 
 - Model III ROM:
@@ -50,6 +56,10 @@ or:
 - Ensure disk is treated as writable when image is writable.
 - Create/update a file and verify changes persist after reboot.
 
+4. Formatting and backup:
+- `FORMAT :1` completes without write fault.
+- `BACKUP :0 :1` proceeds (LDOS prompt `Different pack IDs! Abort backup ?` is expected; answering `Y` aborts by design).
+
 ## FDC/Drive Selection Cases
 
 1. Two-drive behavior:
@@ -85,4 +95,6 @@ Record results in a simple table per run:
 - `TRSDOS boot` (`pass/fail`)
 - `BUILD TEST/BAS` (`pass/fail`)
 - `CMD"S"` (`pass/fail`)
+- `FORMAT :1` (`pass/fail`)
+- `BACKUP :0 :1` (`pass/fail`)
 - `Notes`

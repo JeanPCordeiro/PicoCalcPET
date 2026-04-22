@@ -20,6 +20,16 @@ It is a project-local integration reference focused on extracting a TRS-80 Model
 
 In this repository it should not be treated as a desktop application to port wholesale.
 
+## Current Integration State
+
+As of the current PicoCalc firmware status:
+
+- core CPU/memory/io flow is integrated
+- Model III ROM boot path is integrated
+- disk controller path (`trs_disk.c`) is integrated via a maintained patch
+- memory sizing path (`trs_memory.c`) is integrated via a maintained patch
+- SDL desktop frontend files remain excluded
+
 ## Observed Top-Level Layout
 
 Key files and directories in the vendored tree:
@@ -110,7 +120,6 @@ These files are SDL/frontend oriented:
 
 ### Later-Phase Candidates
 
-- `src/trs_disk.c`
 - `src/trs_hard.c`
 - `src/trs_stringy.c`
 - `src/trs_uart.c`

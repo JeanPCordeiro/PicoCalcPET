@@ -1,9 +1,11 @@
 # Vendor Patch Workflow (No Source Fork)
 
-This repository now uses a vendor+patch model for core `sdltrs` emulation files:
+This repository now uses a vendor+patch model for core `sdltrs` emulation files and selected PicoCalc starter files:
 
 - Upstream sources stay in `third_party/sdltrs/src/*.c`
 - Pico-specific changes live in `patches/sdltrs/*.patch`
+- Upstream starter driver sources stay in `third_party/picocalc-text-starter/drivers/*.c`
+- Pico-specific starter fixes live in `patches/picocalc-text-starter/*.patch`
 - Build copies upstream sources into the build directory, applies patches, then compiles patched copies.
 
 ## Why this is better
@@ -17,6 +19,7 @@ This repository now uses a vendor+patch model for core `sdltrs` emulation files:
 - Patched vendor files:
   - `trs_disk.c`
   - `trs_memory.c`
+  - `fat32.c` (starter driver)
 - Unpatched vendor files with local adaptation:
   - `trs_cmd_rom.c` via compile-time stdio shim (`firmware/compat/sdltrs_cmd_rom_stdio_shim.h`) and `platform_file_*` bridge
   - `trs_interrupt.c` via local post-reset policy scrub (`firmware/emu/picocalc_reset_policy.c`)
@@ -34,6 +37,7 @@ This repository now uses a vendor+patch model for core `sdltrs` emulation files:
 
 - `patches/sdltrs/0001-picocalc-trs_disk.patch`
 - `patches/sdltrs/0004-picocalc-trs_memory.patch`
+- `patches/picocalc-text-starter/0001-picocalc-fat32-next-free-wrap.patch`
 
 These patches are applied during CMake configure for `PICOCALC_PLATFORM=ON`.
 
@@ -41,6 +45,16 @@ These patches are applied during CMake configure for `PICOCALC_PLATFORM=ON`.
 
 - `0001` (`trs_disk`): still required for Pico FAT32 stdio bridge, strict DMK probing fix, and a direct `NDRIVES=2` limit for RP2350 memory fit.
 - `0004` (`trs_memory`): currently required for RP2350 RAM fit (`MAX_MEMORY_SIZE`, `MEGAMEM_START`).
+- `0001` (`fat32` in starter): required for allocator/write robustness and Pico SD-card reliability under write-heavy flows.
+
+## Debug/diagnostic mode
+
+Runtime diagnostic output is now opt-in:
+
+- `PICOCALC_ENABLE_FDC_DIAG=ON`
+- `PICOCALC_ENABLE_DISK_FAULT_DIAG=ON`
+
+Default release builds keep these disabled.
 
 ## Non-patch adaptations
 

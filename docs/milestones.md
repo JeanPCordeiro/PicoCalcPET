@@ -1,59 +1,58 @@
 # PicoCalcTRS Milestones
 
+## Current Snapshot (April 2026)
+
+- Model III boots with SD ROM and embedded-ROM fallback.
+- Disk drives `:0` and `:1` are active.
+- DOS/BASIC write workflows are working in on-device tests.
+- `FORMAT` now completes (slowly, due conservative write retry policy).
+- Build path supports quiet release and optional diagnostics.
+
+---
+
 ## M1 - Compatibility + Regression Harness
+
+Status: `completed`
 
 ### Goal
 Make every firmware iteration repeatable and safe by combining:
 - automated build/integration checks
 - manual on-device compatibility checks focused on Model III DOS/BASIC flows
 
-### Scope
-- Add a scriptable regression harness for local CI-like checks.
-- Add a standard manual compatibility matrix for device testing.
-- Define pass/fail gates for each release candidate UF2.
-
-### Deliverables
+### Delivered
 - [regression-m1.sh](/workspaces/PicoCalcTRS/scripts/regression-m1.sh)
 - [m1-compatibility-checklist.md](/workspaces/PicoCalcTRS/docs/m1-compatibility-checklist.md)
-- a generated run report at `dist/regression/m1-report.txt`
-
-### Exit Criteria
-- UF2 build succeeds.
-- Stable UF2 artifact exists in `dist/`.
-- Only expected `sdltrs` patches remain (`0001`, `0004`).
-- `trs_cmd_rom.c` shim include is active in build metadata.
-- Manual checklist passes on device for LDOS/TRSDOS/BASIC core workflows.
+- generated run report at `dist/regression/m1-report.txt`
+- stable UF2 copy in `dist/`
 
 ---
 
 ## M2 - FDC Fidelity Hardening
 
-### Goal
-Increase disk-controller behavior parity on Pico with desktop `sdltrs` expectations.
+Status: `in progress (high confidence beta)`
 
-### Scope
-- Validate and harden write/flush paths under repeated file operations.
-- Expand disk image format/edge-case test coverage.
-- Investigate and remove remaining compatibility hacks where possible.
+### Completed in M2
+- WRITEM compatibility path for DOS workflows.
+- DMK write-track compatibility relaxations needed by FORMAT/BACKUP flows.
+- FAT32/stdio write-path hardening and retries for long write sessions.
+- Two-drive safety with `NDRIVES=2` and invalid-drive handling.
 
-### Exit Criteria
-- No known regressions in DOS create/edit/delete workflows.
-- Stable behavior on repeated write-heavy sessions.
-- Documented known limitations (if any) with clear repro cases.
+### Remaining
+- Longer soak testing (`FORMAT`/`BACKUP`/file churn loops).
+- Optional reduction of compatibility patches where safe.
+- Finalize known-issue list with reproducible stress cases.
 
 ---
 
 ## M3 - Video Fidelity Completion
 
-### Goal
-Close remaining gaps between Pico frontend output and expected Model III behavior.
+Status: `partially complete`
 
-### Scope
-- Finalize charset/semigraphics correctness.
-- Validate cursor behavior and screen mode edge cases.
-- Validate scrolling and line update semantics across DOS/BASIC apps.
+### Completed
+- TRS cursor rendering + firmware cursor suppression in TRS area.
+- TRS scrolling correctness fixes.
+- Color split (TRS text vs status area) and separator line.
 
-### Exit Criteria
-- Cursor, scrolling, and glyph rendering pass checklist scenarios.
-- No visual regressions across LDOS/TRSDOS/BASIC screens.
-- Video behavior documented with before/after notes for maintained changes.
+### Remaining
+- Final verification of semigraphics edge cases across app set.
+- Optional cleanup/refactor of frontend rendering internals.

@@ -49,6 +49,16 @@ That milestone avoids the riskiest peripherals at first:
 - debugger UI
 - desktop SDL menus
 
+## Current Status
+
+Current firmware status is beyond initial bring-up:
+
+- Model III ROM boot works from SD and embedded fallback.
+- Disk drives `:0` and `:1` are integrated.
+- LDOS/TRSDOS/BASIC core workflows are working in current on-device tests.
+- Build helper emits a stable UF2 in `dist/`.
+- Release and debug build profiles are both supported.
+
 ## Roadmap
 
 The detailed porting plan lives in [docs/porting-plan.md](/workspaces/PicoCalcTRS/docs/porting-plan.md).

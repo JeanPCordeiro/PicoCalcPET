@@ -72,6 +72,12 @@ else
     check_fail "Patch 0004 missing"
 fi
 
+if [[ -f "${REPO_ROOT}/patches/picocalc-text-starter/0001-picocalc-fat32-next-free-wrap.patch" ]]; then
+    check_pass "Starter FAT32 patch exists"
+else
+    check_fail "Starter FAT32 patch missing"
+fi
+
 if [[ ! -f "${REPO_ROOT}/patches/sdltrs/0002-picocalc-trs_interrupt.patch" ]]; then
     check_pass "Patch 0002 removed as intended"
 else

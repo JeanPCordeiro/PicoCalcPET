@@ -87,6 +87,8 @@ Optional environment overrides:
 - `PICOTOOL_SRC_DIR`
 - `PICOTOOL_INSTALL_DIR`
 - `BUILD_DIR`
+- `PICOCALC_ENABLE_FDC_DIAG`
+- `PICOCALC_ENABLE_DISK_FAULT_DIAG`
 
 ## Current Pico Path Status
 
@@ -114,24 +116,26 @@ This is intentionally narrower than the full upstream starter project.
 
 ## Current Limitations
 
-The Pico path is still an integration scaffold.
+The Pico path is now functional for ROM + DOS/BASIC + two-drive workflows, but not feature-complete.
 
-That means:
+Remaining limits:
 
-- many `sdltrs` peripherals are still stubbed locally
-- Pico ROM loading now uses a project-owned FAT32-backed wrapper around `sdltrs` ROM loading
-- screen output is still a simple text-cell path, not a final polished frontend
-- audio, cassette, disk, and advanced UI are not integrated yet
-- the firmware now enters the emulator run loop instead of exiting immediately after reset
+- cassette/audio/printer remain stubbed
+- no RTC emulation (DOS date/time prompts follow Model III behavior)
+- write-heavy disk operations are stable but conservative (extra retries can make operations slower)
+- frontend is functional and intentional, but still not a full desktop-equivalent UI
 
 ## Vendor Patch Adaptation
 
-The Pico build now uses a vendor+patch flow for the core `sdltrs` files.
+The Pico build now uses a vendor+patch flow for:
+
+- core `sdltrs` files
+- selected `picocalc-text-starter` driver files (`fat32.c`)
 
 In short:
 
-- upstream sources remain in `third_party/sdltrs/src/*.c`
-- Pico-specific source diffs are maintained as patch files in `patches/sdltrs/*.patch` (currently disk + memory)
+- upstream sources remain in `third_party/sdltrs/src/*.c` and `third_party/picocalc-text-starter/drivers/*.c`
+- Pico-specific source diffs are maintained as patch files in `patches/sdltrs/*.patch` and `patches/picocalc-text-starter/*.patch`
 - build copies upstream sources into the build directory, applies patches, then compiles
 
 Details are documented in [vendor-patch-workflow.md](/workspaces/PicoCalcTRS/docs/vendor-patch-workflow.md).
@@ -171,7 +175,7 @@ Run:
 What it checks:
 
 - UF2 build success
-- expected patch set shape (`0001`, `0004`)
+- expected `sdltrs` patch set shape (`0001`, `0004`)
 - UF2 artifact presence and hash/size capture
 - compile-time `trs_cmd_rom` shim injection guard
 - optional host build (`RUN_HOST_BUILD=1`)
