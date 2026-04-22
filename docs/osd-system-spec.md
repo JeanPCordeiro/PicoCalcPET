@@ -148,6 +148,8 @@ Rules:
 - OSD uses fixed-width text rendering already present in frontend.
 - Must remain readable with current color scheme.
 - No scrolling artifacts when opening/closing overlay.
+- Runtime status rows outside OSD use `SYS` / `DRV` / `MSG`.
+- OSD apply actions should update `MSG` with concise user-facing results.
 
 ## Persistence Model
 

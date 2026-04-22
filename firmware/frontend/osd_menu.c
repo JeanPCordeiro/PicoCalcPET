@@ -10,6 +10,7 @@
 #include "trs.h"
 #include "trs_disk.h"
 #include "platform/platform.h"
+#include "frontend/status_runtime.h"
 #include "emu/picocalc_reset_policy.h"
 #ifdef PICOCALC_PLATFORM
 #include "pico/time.h"
@@ -709,14 +710,14 @@ void osd_runtime_menu(void)
             } else if (state.cursor == 2) {
                 osd_apply_selection(&catalog, &state);
                 osd_config_save_from_state(&catalog, &state);
-                platform_status_write_line(0, "OSD: media applied");
+                picocalc_status_set_message("OSD: media applied");
                 break;
             } else if (state.cursor == 3) {
                 osd_apply_selection(&catalog, &state);
                 osd_config_save_from_state(&catalog, &state);
                 trs_reset(1);
                 picocalc_apply_post_reset_policy();
-                platform_status_write_line(0, "OSD: media applied + reset");
+                picocalc_status_set_message("OSD: media applied + reset");
                 break;
             } else if (state.cursor == 4) {
                 break;

@@ -91,8 +91,8 @@ else
 fi
 
 section "Artifacts"
-uf2_build="${BUILD_DIR}/firmware/picocalc_trs_scaffold.uf2"
-uf2_dist="${DIST_DIR}/picocalc_trs_scaffold.uf2"
+uf2_build="${BUILD_DIR}/firmware/PicoCalcTRS.uf2"
+uf2_dist="${DIST_DIR}/PicoCalcTRS.uf2"
 
 if [[ -f "${uf2_build}" ]]; then
     check_pass "Build UF2 exists (${uf2_build})"

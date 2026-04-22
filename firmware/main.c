@@ -255,7 +255,7 @@ int main(int argc, char **argv)
     bool disk0_found;
     bool disk1_found;
 
-    program_name = "picocalc_trs_scaffold";
+    program_name = "PicoCalcTRS";
 
     trs_model = 3;
     trs_sdl_init();

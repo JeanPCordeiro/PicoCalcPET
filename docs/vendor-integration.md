@@ -352,6 +352,12 @@ Recommended choice:
 
 - defer cassette/audio until after ROM boot, screen, and keyboard are working
 
+Current implementation note:
+
+- this repository now uses a local PicoCalc audio bridge adapter for sound-related callbacks
+- upstream `src/trs_cassette.c` is still kept vendored and unmodified, and is not compiled directly in Pico firmware
+- audio is functional but remains approximation-level versus full SDL cassette/audio behavior
+
 ## Build System Requirements
 
 The top-level build should:

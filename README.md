@@ -56,6 +56,9 @@ Current firmware status is beyond initial bring-up:
 - Model III ROM boot works from SD and embedded fallback.
 - Disk drives `:0` and `:1` are integrated.
 - LDOS/TRSDOS/BASIC core workflows are working in current on-device tests.
+- Runtime status rows use `SYS` / `DRV` / `MSG` layout.
+- Disk activity indicator (`*`) is shown in red for `D0`/`D1` activity.
+- First-pass audio bridge is integrated (TRS sound/cassette/orchestra callbacks routed to PicoCalc PWM audio).
 - Build helper emits a stable UF2 in `dist/`.
 - Release and debug build profiles are both supported.
 
@@ -70,7 +73,7 @@ The vendor setup instructions live in [docs/vendor-setup.md](/workspaces/PicoCal
 
 The Pico SDK build notes live in [docs/pico-build.md](/workspaces/PicoCalcTRS/docs/pico-build.md).
 
-The stable flash artifact produced by the helper script is [dist/picocalc_trs_scaffold.uf2](/workspaces/PicoCalcTRS/dist/picocalc_trs_scaffold.uf2).
+The stable flash artifact produced by the helper script is [dist/PicoCalcTRS.uf2](/workspaces/PicoCalcTRS/dist/PicoCalcTRS.uf2).
 
 Build profile toggles (helper script env vars):
 

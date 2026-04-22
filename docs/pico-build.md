@@ -59,11 +59,11 @@ cmake --build build-pico -j2
 
 With the current scaffold, that build completes successfully and produces:
 
-- `build-pico/firmware/picocalc_trs_scaffold.elf`
-- `build-pico/firmware/picocalc_trs_scaffold.bin`
-- `build-pico/firmware/picocalc_trs_scaffold.hex`
+- `build-pico/firmware/PicoCalcTRS.elf`
+- `build-pico/firmware/PicoCalcTRS.bin`
+- `build-pico/firmware/PicoCalcTRS.hex`
 
-To generate `build-pico/firmware/picocalc_trs_scaffold.uf2`, configure without `-DPICO_NO_PICOTOOL=1` and make sure `picotool` is available to the Pico SDK.
+To generate `build-pico/firmware/PicoCalcTRS.uf2`, configure without `-DPICO_NO_PICOTOOL=1` and make sure `picotool` is available to the Pico SDK.
 
 ## Reproducible UF2 Command
 
@@ -72,8 +72,8 @@ The repo now includes [build-pico-uf2.sh](/workspaces/PicoCalcTRS/scripts/build-
 - uses `PICO_SDK_PATH` or defaults to `$HOME/pico-sdk`
 - builds and installs a local `picotool` under `/tmp/picotool/install` if needed
 - configures the firmware with UF2 generation enabled
-- builds `build-pico-uf2/firmware/picocalc_trs_scaffold.uf2`
-- copies a stable flash artifact to [dist/picocalc_trs_scaffold.uf2](/workspaces/PicoCalcTRS/dist/picocalc_trs_scaffold.uf2)
+- builds `build-pico-uf2/firmware/PicoCalcTRS.uf2`
+- copies a stable flash artifact to [dist/PicoCalcTRS.uf2](/workspaces/PicoCalcTRS/dist/PicoCalcTRS.uf2)
 
 Usage:
 
@@ -120,10 +120,21 @@ The Pico path is now functional for ROM + DOS/BASIC + two-drive workflows, but n
 
 Remaining limits:
 
-- cassette/audio/printer remain stubbed
+- printer remains stubbed
+- cassette/audio are implemented through a PicoCalc-specific bridge, but are approximation-level (not full SDL cassette/audio fidelity)
 - no RTC emulation (DOS date/time prompts follow Model III behavior)
 - write-heavy disk operations are stable but conservative (extra retries can make operations slower)
 - frontend is functional and intentional, but still not a full desktop-equivalent UI
+
+## Runtime Status Rows
+
+Current runtime status UI uses three rows:
+
+- `SYS`: ROM source, SD presence, audio state, `F4=OSD` hint
+- `DRV`: `D0`/`D1` mounted image names and `rw`/`ro`
+- `MSG`: latest user-facing event/error
+
+Disk activity markers are rendered in red (`*`) for `D0`/`D1` during active disk operations.
 
 ## Vendor Patch Adaptation
 
@@ -169,7 +180,7 @@ This path is intended to be shared by emulator auto-mount behavior and future OS
 3. run `./scripts/regression-m1.sh` for M1 automated regression gates and UF2 build
 4. or configure manually with `-DPICOCALC_PLATFORM=ON`
 5. flash the resulting image:
-   - preferred stable artifact: [dist/picocalc_trs_scaffold.uf2](/workspaces/PicoCalcTRS/dist/picocalc_trs_scaffold.uf2)
+   - preferred stable artifact: [dist/PicoCalcTRS.uf2](/workspaces/PicoCalcTRS/dist/PicoCalcTRS.uf2)
    - use `.uf2` if `picotool` is available and UF2 generation is enabled
    - otherwise use the generated `.elf` or `.hex` with your preferred flashing workflow
 

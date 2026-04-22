@@ -36,6 +36,7 @@ enum {
 
 #define PICOCALC_STATUS_CYAN RGB(0, 255, 255)
 #define PICOCALC_TRS_AMBER RGB(255, 191, 0)
+#define PICOCALC_STATUS_RED RGB(255, 0, 0)
 
 static int picocalc_cols = 64;
 static int picocalc_rows = 16;
@@ -46,6 +47,45 @@ static fat32_error_t picocalc_last_file_error = FAT32_OK;
 static bool picocalc_platform_initialised;
 static bool picocalc_use_trs_font;
 static uint16_t picocalc_trs_cell_buffer[PICOCALC_TRS_FONT_WIDTH * 2 * PICOCALC_TRS_FONT_HEIGHT];
+static int picocalc_disk_led_state[2];
+
+static void picocalc_draw_disk_activity(void)
+{
+    int row;
+    int base_col;
+    int drive;
+
+    if (picocalc_status_rows <= 0) {
+        return;
+    }
+
+    row = picocalc_status_row + ((picocalc_status_rows > 1) ? 1 : 0);
+    base_col = lcd_get_columns() - 12;
+    if (base_col < 0) {
+        base_col = 0;
+    }
+
+    for (drive = 0; drive < 2; ++drive) {
+        int col = base_col + drive * 6;
+
+        if (col + 2 >= lcd_get_columns()) {
+            break;
+        }
+
+        lcd_set_foreground(PICOCALC_STATUS_CYAN);
+        lcd_set_background(BACKGROUND);
+        lcd_putc((uint8_t)(col + 0), (uint8_t)row, 'D');
+        lcd_putc((uint8_t)(col + 1), (uint8_t)row, (uint8_t)('0' + drive));
+
+        if (picocalc_disk_led_state[drive]) {
+            lcd_set_foreground(PICOCALC_STATUS_RED);
+            lcd_putc((uint8_t)(col + 2), (uint8_t)row, '*');
+        } else {
+            lcd_set_foreground(PICOCALC_STATUS_CYAN);
+            lcd_putc((uint8_t)(col + 2), (uint8_t)row, ' ');
+        }
+    }
+}
 
 static uint16_t picocalc_trs_foreground(void)
 {
@@ -363,6 +403,7 @@ void platform_status_clear(void)
         picocalc_clear_line(picocalc_status_row + line);
     }
     picocalc_status_next_line = 0;
+    picocalc_draw_disk_activity();
 }
 
 void platform_status_puts(const char *text)
@@ -376,6 +417,7 @@ void platform_status_puts(const char *text)
     line = picocalc_status_row + picocalc_status_next_line;
     picocalc_write_line(line, text);
     picocalc_status_next_line = (picocalc_status_next_line + 1) % picocalc_status_rows;
+    picocalc_draw_disk_activity();
 }
 
 void platform_status_write_line(int line, const char *text)
@@ -389,12 +431,17 @@ void platform_status_write_line(int line, const char *text)
     }
 
     picocalc_write_line(picocalc_status_row + line, text);
+    picocalc_draw_disk_activity();
 }
 
 void platform_set_disk_led(int drive, int on_off)
 {
-    (void)drive;
-    (void)on_off;
+    if (drive < 0 || drive > 1) {
+        return;
+    }
+
+    picocalc_disk_led_state[drive] = on_off ? 1 : 0;
+    picocalc_draw_disk_activity();
 }
 
 void platform_set_hard_led(int drive, int on_off)

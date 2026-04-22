@@ -50,10 +50,10 @@ cmake -S "${REPO_ROOT}" \
 cmake --build "${BUILD_DIR}" -j"$(nproc)"
 
 mkdir -p "${DIST_DIR}"
-cp "${BUILD_DIR}/firmware/picocalc_trs_scaffold.uf2" "${DIST_DIR}/picocalc_trs_scaffold.uf2"
+cp "${BUILD_DIR}/firmware/PicoCalcTRS.uf2" "${DIST_DIR}/PicoCalcTRS.uf2"
 
 echo
 echo "UF2 build complete:"
-echo "  ${BUILD_DIR}/firmware/picocalc_trs_scaffold.uf2"
+echo "  ${BUILD_DIR}/firmware/PicoCalcTRS.uf2"
 echo "Stable copy:"
-echo "  ${DIST_DIR}/picocalc_trs_scaffold.uf2"
+echo "  ${DIST_DIR}/PicoCalcTRS.uf2"
