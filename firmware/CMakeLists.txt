@@ -128,8 +128,10 @@ endif()
 
 add_library(sdltrs_frontend_stubs STATIC
     compat/sdl_compat.c
+    frontend/osd_menu.c
     frontend/trs_frontend_stub.c
     frontend/trs_keyboard_stub.c
+    emu/picocalc_audio_bridge.c
     emu/picocalc_reset_policy.c
     emu/sdltrs_peripheral_stubs.c
 )

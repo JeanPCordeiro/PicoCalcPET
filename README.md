@@ -56,12 +56,16 @@ Current firmware status is beyond initial bring-up:
 - Model III ROM boot works from SD and embedded fallback.
 - Disk drives `:0` and `:1` are integrated.
 - LDOS/TRSDOS/BASIC core workflows are working in current on-device tests.
+- Runtime status rows use `SYS` / `DRV` / `MSG` layout.
+- Disk activity indicator (`*`) is shown in red for `D0`/`D1` activity.
+- First-pass audio bridge is integrated (TRS sound/cassette/orchestra callbacks routed to PicoCalc PWM audio).
 - Build helper emits a stable UF2 in `dist/`.
 - Release and debug build profiles are both supported.
 
 ## Roadmap
 
 The detailed porting plan lives in [docs/porting-plan.md](/workspaces/PicoCalcTRS/docs/porting-plan.md).
+The OSD control-plane spec lives in [docs/osd-system-spec.md](/workspaces/PicoCalcTRS/docs/osd-system-spec.md).
 
 The vendor integration specification lives in [docs/vendor-integration.md](/workspaces/PicoCalcTRS/docs/vendor-integration.md).
 

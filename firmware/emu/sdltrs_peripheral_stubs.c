@@ -10,6 +10,7 @@
 #include "trs_memory.h"
 #include "error.h"
 #include "picocalc_reset_policy.h"
+#include "picocalc_audio_bridge.h"
 
 const char *program_name = "PicoCalcTRS";
 volatile bool user_interrupt;
@@ -17,22 +18,41 @@ volatile bool user_interrupt;
 int stringy;
 int trs_io_debug_flags;
 int grafyx_microlabs;
-int cassette_default_sample_rate;
+int cassette_default_sample_rate = 44100;
 
 void do_emt_resetdisk(void) {}
-void trs_cassette_reset(int poweron) { (void)poweron; }
+void trs_cassette_reset(int poweron)
+{
+    (void)poweron;
+    picocalc_audio_bridge_reset();
+}
 void trs_uart_init(void) {}
 void grafyx_write_mode(int value) { (void)value; }
 void grafyx_m3_reset(void) {}
 void hrg_onoff(int enable) { (void)enable; }
 void m6845_text(int onoff) { (void)onoff; }
 void eg3210_char(int character, int scanline, int byte) { (void)character; (void)scanline; (void)byte; }
-void trs_cassette_update(int dummy) { (void)dummy; }
-void trs_orch90_flush(int dummy) { (void)dummy; }
-void trs_orch90_out(int chan, int value) { (void)chan; (void)value; }
+void trs_cassette_update(int dummy)
+{
+    (void)dummy;
+    picocalc_audio_bridge_cassette_update();
+}
+void trs_orch90_flush(int dummy)
+{
+    (void)dummy;
+    picocalc_audio_bridge_orch90_flush();
+}
+void trs_orch90_out(int chan, int value)
+{
+    picocalc_audio_bridge_orch90_out(chan, value);
+}
 void assert_state_void(int dummy) { (void)dummy; }
 void transition_out(int dummy) { (void)dummy; }
-void trs_cassette_kickoff(int dummy) { (void)dummy; }
+void trs_cassette_kickoff(int dummy)
+{
+    (void)dummy;
+    picocalc_audio_bridge_cassette_kickoff();
+}
 void trs_uart_set_avail(int dummy) { (void)dummy; }
 void trs_uart_set_empty(int dummy) { (void)dummy; }
 void genie3s_char(int character, int scanline, int byte) { (void)character; (void)scanline; (void)byte; }

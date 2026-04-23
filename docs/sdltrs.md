@@ -210,10 +210,16 @@ Optional:
 
 `trs_cassette.c` is not a good first target for zero-modification vendor integration because it depends on SDL audio behavior.
 
-Recommended policy:
+Historical policy (first bring-up):
 
-- exclude cassette and sound for the first bring-up
+- exclude cassette and sound initially
 - defer audio integration until ROM boot, screen, and keyboard work
+
+Current project state:
+
+- cassette/sound/orchestra callbacks are now handled by a local PicoCalc audio bridge adapter
+- upstream `trs_cassette.c` is still not compiled as-is in Pico firmware
+- current audio behavior is functional but approximation-level compared to SDL cassette/audio fidelity
 
 ## Build Notes For This Repository
 

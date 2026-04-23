@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
+#include <strings.h>
 
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
@@ -34,6 +36,7 @@ enum {
 
 #define PICOCALC_STATUS_CYAN RGB(0, 255, 255)
 #define PICOCALC_TRS_AMBER RGB(255, 191, 0)
+#define PICOCALC_STATUS_RED RGB(255, 0, 0)
 
 static int picocalc_cols = 64;
 static int picocalc_rows = 16;
@@ -44,6 +47,45 @@ static fat32_error_t picocalc_last_file_error = FAT32_OK;
 static bool picocalc_platform_initialised;
 static bool picocalc_use_trs_font;
 static uint16_t picocalc_trs_cell_buffer[PICOCALC_TRS_FONT_WIDTH * 2 * PICOCALC_TRS_FONT_HEIGHT];
+static int picocalc_disk_led_state[2];
+
+static void picocalc_draw_disk_activity(void)
+{
+    int row;
+    int base_col;
+    int drive;
+
+    if (picocalc_status_rows <= 0) {
+        return;
+    }
+
+    row = picocalc_status_row + ((picocalc_status_rows > 1) ? 1 : 0);
+    base_col = lcd_get_columns() - 12;
+    if (base_col < 0) {
+        base_col = 0;
+    }
+
+    for (drive = 0; drive < 2; ++drive) {
+        int col = base_col + drive * 6;
+
+        if (col + 2 >= lcd_get_columns()) {
+            break;
+        }
+
+        lcd_set_foreground(PICOCALC_STATUS_CYAN);
+        lcd_set_background(BACKGROUND);
+        lcd_putc((uint8_t)(col + 0), (uint8_t)row, 'D');
+        lcd_putc((uint8_t)(col + 1), (uint8_t)row, (uint8_t)('0' + drive));
+
+        if (picocalc_disk_led_state[drive]) {
+            lcd_set_foreground(PICOCALC_STATUS_RED);
+            lcd_putc((uint8_t)(col + 2), (uint8_t)row, '*');
+        } else {
+            lcd_set_foreground(PICOCALC_STATUS_CYAN);
+            lcd_putc((uint8_t)(col + 2), (uint8_t)row, ' ');
+        }
+    }
+}
 
 static uint16_t picocalc_trs_foreground(void)
 {
@@ -361,6 +403,7 @@ void platform_status_clear(void)
         picocalc_clear_line(picocalc_status_row + line);
     }
     picocalc_status_next_line = 0;
+    picocalc_draw_disk_activity();
 }
 
 void platform_status_puts(const char *text)
@@ -374,6 +417,7 @@ void platform_status_puts(const char *text)
     line = picocalc_status_row + picocalc_status_next_line;
     picocalc_write_line(line, text);
     picocalc_status_next_line = (picocalc_status_next_line + 1) % picocalc_status_rows;
+    picocalc_draw_disk_activity();
 }
 
 void platform_status_write_line(int line, const char *text)
@@ -387,12 +431,17 @@ void platform_status_write_line(int line, const char *text)
     }
 
     picocalc_write_line(picocalc_status_row + line, text);
+    picocalc_draw_disk_activity();
 }
 
 void platform_set_disk_led(int drive, int on_off)
 {
-    (void)drive;
-    (void)on_off;
+    if (drive < 0 || drive > 1) {
+        return;
+    }
+
+    picocalc_disk_led_state[drive] = on_off ? 1 : 0;
+    picocalc_draw_disk_activity();
 }
 
 void platform_set_hard_led(int drive, int on_off)
@@ -457,4 +506,80 @@ int platform_sd_detect_state(void)
 bool platform_sd_card_present(void)
 {
     return sd_card_present();
+}
+
+int platform_list_disk_images(const char *root, char *paths, int path_stride, int max_paths)
+{
+    fat32_file_t dir;
+    fat32_entry_t entry;
+    fat32_error_t result;
+    int count = 0;
+    const char *extensions[] = { ".dmk", ".dsk", ".jv1", ".jv3" };
+    size_t i;
+    size_t root_len;
+    int has_trailing_slash;
+
+    if (root == NULL || root[0] == '\0' ||
+        paths == NULL || path_stride <= 1 || max_paths <= 0) {
+        return -1;
+    }
+
+    result = fat32_open(&dir, root);
+    if (result != FAT32_OK) {
+        picocalc_last_file_error = result;
+        return -1;
+    }
+
+    root_len = strlen(root);
+    has_trailing_slash = (root_len > 0 && root[root_len - 1] == '/');
+
+    for (;;) {
+        int supported = 0;
+        const char *dot;
+
+        result = fat32_dir_read(&dir, &entry);
+        if (result != FAT32_OK) {
+            fat32_close(&dir);
+            picocalc_last_file_error = result;
+            return -1;
+        }
+
+        if (entry.filename[0] == '\0') {
+            break;
+        }
+
+        if (entry.attr & (FAT32_ATTR_VOLUME_ID | FAT32_ATTR_HIDDEN | FAT32_ATTR_SYSTEM)) {
+            continue;
+        }
+        if (entry.attr & FAT32_ATTR_DIRECTORY) {
+            continue;
+        }
+
+        dot = strrchr(entry.filename, '.');
+        if (dot == NULL) {
+            continue;
+        }
+
+        for (i = 0; i < (sizeof(extensions) / sizeof(extensions[0])); ++i) {
+            if (strcasecmp(dot, extensions[i]) == 0) {
+                supported = 1;
+                break;
+            }
+        }
+        if (!supported) {
+            continue;
+        }
+
+        if (count < max_paths) {
+            char *slot = paths + (count * path_stride);
+            snprintf(slot, (size_t)path_stride, "%s%s%s",
+                     root, has_trailing_slash ? "" : "/", entry.filename);
+            slot[path_stride - 1] = '\0';
+        }
+        count++;
+    }
+
+    fat32_close(&dir);
+    picocalc_last_file_error = FAT32_OK;
+    return count;
 }

@@ -35,7 +35,7 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 
 2. `SD + ROM present` boot:
 - Expect ROM load from SD.
-- Expect status lines showing ROM and disk detection.
+- Expect runtime status rows in `SYS` / `DRV` / `MSG` format.
 
 3. `SD + disk0 present` boot to DOS:
 - Expect DOS prompt path (`Date?`/`Time?` flow where applicable).
@@ -80,9 +80,20 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 - Fill screen with lines and confirm upward scroll behavior (no full-clear glitch).
 
 3. Color separation:
-- TRS text is green.
+- TRS text is amber.
 - status area text is cyan.
 - separator line visible between TRS and status areas.
+- red disk activity `*` appears on `D0`/`D1` during disk access.
+
+## Audio Cases
+
+1. Game sound:
+- Run a game/application with known speaker output.
+- Expect audible output on PicoCalc audio pins/speaker path.
+
+2. Sound toggle baseline:
+- Ensure default boot has sound enabled (`SYS ... AUD:on`).
+- Verify no hard hangs/regressions when sound activity is high.
 
 ## Result Recording
 

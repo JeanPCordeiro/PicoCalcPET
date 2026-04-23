@@ -120,10 +120,21 @@ The Pico path is now functional for ROM + DOS/BASIC + two-drive workflows, but n
 
 Remaining limits:
 
-- cassette/audio/printer remain stubbed
+- printer remains stubbed
+- cassette/audio are implemented through a PicoCalc-specific bridge, but are approximation-level (not full SDL cassette/audio fidelity)
 - no RTC emulation (DOS date/time prompts follow Model III behavior)
 - write-heavy disk operations are stable but conservative (extra retries can make operations slower)
 - frontend is functional and intentional, but still not a full desktop-equivalent UI
+
+## Runtime Status Rows
+
+Current runtime status UI uses three rows:
+
+- `SYS`: ROM source, SD presence, audio state, `F4=OSD` hint
+- `DRV`: `D0`/`D1` mounted image names and `rw`/`ro`
+- `MSG`: latest user-facing event/error
+
+Disk activity markers are rendered in red (`*`) for `D0`/`D1` during active disk operations.
 
 ## Vendor Patch Adaptation
 
@@ -152,6 +163,15 @@ The firmware currently looks for a Model III ROM in this order:
 6. `/TRS80/ROMS/trs80m3.rom`
 
 On PicoCalc, the existence checks are routed through the FAT32 layer.
+
+## Disk Placement
+
+Current disk root convention for Pico firmware is:
+
+- `/TRS80/DISKS/disk0.dmk`
+- `/TRS80/DISKS/disk1.dmk`
+
+This path is intended to be shared by emulator auto-mount behavior and future OSD media selection.
 
 ## Suggested Workflow
 

@@ -23,6 +23,7 @@ typedef struct {
     char filename[PICOCALC_PATH_MAX];
 } disk_picker_entry_t;
 #endif
+#include "frontend/osd_menu.h"
 
 extern const char *program_name;
 
@@ -474,8 +475,8 @@ static bool select_disk_path(int argc, char **argv, int drive,
                              char *buffer, size_t buffer_size)
 {
     static const char *extensions[] = {
-        ".dsk",
         ".dmk",
+        ".dsk",
         ".jv3",
         ".jv1"
     };
@@ -519,6 +520,11 @@ static bool select_disk_path(int argc, char **argv, int drive,
                 buffer[buffer_size - 1] = '\0';
                 return true;
             }
+        snprintf(candidate, sizeof(candidate), "/TRS80/DISKS/disk%d%s", drive, extensions[ext_index]);
+        if (platform_file_exists(candidate)) {
+            strncpy(buffer, candidate, buffer_size - 1);
+            buffer[buffer_size - 1] = '\0';
+            return true;
         }
     }
 
@@ -592,7 +598,13 @@ int main(int argc, char **argv)
             disk1_found = select_disk_path(argc, argv, 1, disk1_path, sizeof(disk1_path));
         }
         status_printf("Boot: D0:%c D1:%c", disk0_found ? 'Y' : 'N', disk1_found ? 'Y' : 'N');
+
     }
+
+    show_boot_stage("Startup OSD...");
+    osd_startup_menu(disk0_path, &disk0_found, disk1_path, &disk1_found, 0);
+    status_printf("Boot: OSD D0:%c D1:%c", disk0_found ? 'Y' : 'N', disk1_found ? 'Y' : 'N');
+
     if (!rom_found) {
         show_missing_rom_screen();
         for (;;) {
