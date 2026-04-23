@@ -69,7 +69,7 @@ The vendor setup instructions live in [docs/vendor-setup.md](/workspaces/PicoCal
 
 The Pico SDK build notes live in [docs/pico-build.md](/workspaces/PicoCalcTRS/docs/pico-build.md).
 
-The stable flash artifact produced by the helper script is [dist/picocalc_trs_scaffold.uf2](/workspaces/PicoCalcTRS/dist/picocalc_trs_scaffold.uf2).
+The stable flash artifact produced by the helper script is [dist/PicoCalcTRS.uf2](/workspaces/PicoCalcTRS/dist/PicoCalcTRS.uf2).
 
 Build profile toggles (helper script env vars):
 
