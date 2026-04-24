@@ -66,7 +66,7 @@ Current firmware status is beyond initial bring-up:
 - PicoCalc Esc maps to TRS BREAK; PicoCalc BRK (Shift+Esc) maps to the TRS reset button.
 - The SDL timing shim uses Pico SDK time so the Z80 throttle path can target real Model III speed.
 - Standard Model III cassette-port game sound is wired to the PicoCalc PWM audio driver, with rate-limited updates for timing-heavy games such as SCARFMAN.
-- Current M1 regression status: 24 automated checks passing, 0 failing.
+- Current M1 regression status: 28 automated checks passing, 0 failing.
 
 Expected SD-card layout:
 
@@ -89,7 +89,7 @@ Current enhancement priorities:
 3. expand the game compatibility sweep across timing, keyboard, video, disk, and audio behavior
 4. finish video fidelity checks, especially semigraphics and attribute edge cases
 5. continue FDC soak testing and disk-image compatibility checks
-6. broaden Model III game-audio testing, including optional disk seek/motor sound effects, and improve the audio path if more demanding games expose artifacts
+6. broaden Model III game-audio testing, validate the optional F4 disk seek/access click effect, and improve the audio path if more demanding games expose artifacts
 
 Explicitly out of scope for this firmware target:
 
@@ -108,6 +108,10 @@ The Pico SDK build notes live in [docs/pico-build.md](/workspaces/PicoCalcTRS/do
 The release checklist lives in [docs/release-checklist.md](/workspaces/PicoCalcTRS/docs/release-checklist.md).
 
 The game compatibility matrix lives in [docs/game-compatibility.md](/workspaces/PicoCalcTRS/docs/game-compatibility.md).
+
+The video fidelity checklist lives in [docs/video-fidelity-checklist.md](/workspaces/PicoCalcTRS/docs/video-fidelity-checklist.md).
+
+The FDC soak checklist lives in [docs/fdc-soak-checklist.md](/workspaces/PicoCalcTRS/docs/fdc-soak-checklist.md).
 
 The stable flash artifact produced by the helper script is [dist/PicoCalcTRS.uf2](/workspaces/PicoCalcTRS/dist/PicoCalcTRS.uf2).
 

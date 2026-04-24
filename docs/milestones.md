@@ -15,7 +15,7 @@
 - PicoCalc Esc sends TRS BREAK; PicoCalc BRK (Shift+Esc) presses the TRS reset button.
 - SDL timing shim now uses Pico SDK ticks/delay, enabling real-time Z80 throttling.
 - Standard Model III game sound is active through the PicoCalc PWM audio driver; SCARFMAN has been verified after audio update throttling.
-- Latest M1 regression run: 24 passes, 0 failures.
+- Latest M1 regression run: 28 passes, 0 failures.
 
 Explicit non-goals for this firmware target:
 
@@ -125,6 +125,7 @@ Status: `in progress`
 - TRS scrolling correctness fixes.
 - Color split (TRS text vs status area) and separator line.
 - Procedural 2x3 block rendering for Model III semigraphics characters `0x80`-`0xBF`.
+- Added [video-fidelity-checklist.md](/workspaces/PicoCalcTRS/docs/video-fidelity-checklist.md) for focused on-device video validation.
 
 ### Remaining
 - Final verification of semigraphics edge cases across app set.
@@ -135,7 +136,7 @@ Status: `in progress`
 
 ## M6 - FDC Fidelity Hardening
 
-Status: `planned`
+Status: `in progress`
 
 ### Completed Foundation
 - WRITEM compatibility path for DOS workflows.
@@ -143,6 +144,8 @@ Status: `planned`
 - FAT32/stdio write-path hardening and retries for long write sessions.
 - Two-drive safety with `NDRIVES=2` and invalid-drive handling.
 - Real-time throttle path connected to Pico SDK timing.
+- Added [fdc-soak-checklist.md](/workspaces/PicoCalcTRS/docs/fdc-soak-checklist.md) for image-matrix and long-run disk validation.
+- Hardware smoke passed for `BACKUP :0 :1` on user-tested media.
 
 ### Planned
 - Longer soak testing (`FORMAT`/`BACKUP`/file churn loops).
@@ -155,17 +158,23 @@ Status: `planned`
 
 ## M7 - Audio Polish
 
-Status: `planned`
+Status: `in progress`
 
 ### Goal
 Keep standard Model III game sound stable and pleasant without implementing cassette data I/O.
 
+### Completed
+- Added a default-off `F4` runtime toggle for optional disk SFX.
+- Added short non-blocking D0/D1 disk access clicks on disk LED activity.
+- Disk clicks are throttled and skipped while TRS game audio is active.
+- Hardware smoke confirmed disk clicks during `BACKUP :0 :1`.
+
 ### Planned
 - Test more Model III sound games beyond SCARFMAN.
-- Add optional disk activity sound effects:
-  - short non-blocking seek/head-step clicks for RESTORE, SEEK, STEP, STEP IN, and STEP OUT activity
+- Validate optional disk activity sound effects on hardware:
+  - short non-blocking seek/head-step clicks during disk access
   - optional low-priority motor hum while the emulated disk motor/access indicator is active
-  - a `DSK SFX:on/off` style toggle or equivalent build/runtime control
+  - tune or disable the effect if it distracts from game audio or DOS workflows
 - Keep audio priority explicit:
   - TRS game audio has priority
   - seek clicks may play only when safe or as a very short override

@@ -94,12 +94,86 @@ static unsigned int trs_audio_current_hz;
 static uint32_t trs_audio_last_activity_ms;
 static uint32_t trs_audio_last_update_ms;
 static alarm_id_t trs_audio_silence_alarm = -1;
+static int trs_disk_sfx_enabled;
+static int trs_disk_sfx_active;
+static uint32_t trs_disk_sfx_last_ms;
+static alarm_id_t trs_disk_sfx_alarm = -1;
 
 #define TRS_AUDIO_MIN_HZ 100u
 #define TRS_AUDIO_MAX_HZ 2000u
 #define TRS_AUDIO_IDLE_MS 35
 #define TRS_AUDIO_UPDATE_MS 8
 #define TRS_AUDIO_HZ_DEADBAND 8u
+#define TRS_DISK_SFX_CLICK_MS 12
+#define TRS_DISK_SFX_MIN_INTERVAL_MS 45
+#define TRS_DISK_SFX_D0_HZ 720u
+#define TRS_DISK_SFX_D1_HZ 840u
+
+static void trs_disk_sfx_cancel(void)
+{
+    if (trs_disk_sfx_alarm >= 0) {
+        cancel_alarm(trs_disk_sfx_alarm);
+        trs_disk_sfx_alarm = -1;
+    }
+    if (trs_disk_sfx_active) {
+        audio_stop();
+        trs_disk_sfx_active = 0;
+    }
+}
+
+static int64_t trs_disk_sfx_stop_callback(alarm_id_t id, void *user_data)
+{
+    (void)user_data;
+    if (trs_disk_sfx_alarm != id) {
+        return 0;
+    }
+
+    if (trs_disk_sfx_active) {
+        audio_stop();
+        trs_disk_sfx_active = 0;
+    }
+    trs_disk_sfx_alarm = -1;
+    return 0;
+}
+
+static void trs_disk_sfx_click(int drive)
+{
+    uint32_t now_ms;
+    uint32_t hz;
+
+    if (!trs_sound || !trs_disk_sfx_enabled || drive < 0 || drive > 1) {
+        return;
+    }
+    if (trs_audio_current_hz != 0 || audio_is_playing() || trs_disk_sfx_active) {
+        return;
+    }
+
+    now_ms = to_ms_since_boot(get_absolute_time());
+    if (now_ms - trs_disk_sfx_last_ms < TRS_DISK_SFX_MIN_INTERVAL_MS) {
+        return;
+    }
+
+    hz = (drive == 0) ? TRS_DISK_SFX_D0_HZ : TRS_DISK_SFX_D1_HZ;
+    audio_play_sound(hz, hz);
+    trs_disk_sfx_active = 1;
+    trs_disk_sfx_last_ms = now_ms;
+    trs_disk_sfx_alarm = add_alarm_in_ms(TRS_DISK_SFX_CLICK_MS,
+                                         trs_disk_sfx_stop_callback,
+                                         NULL, false);
+    if (trs_disk_sfx_alarm < 0) {
+        audio_stop();
+        trs_disk_sfx_active = 0;
+    }
+}
+
+static void trs_disk_sfx_toggle(void)
+{
+    trs_disk_sfx_enabled = !trs_disk_sfx_enabled;
+    if (!trs_disk_sfx_enabled) {
+        trs_disk_sfx_cancel();
+    }
+    platform_status_puts(trs_disk_sfx_enabled ? "DSK SFX:on" : "DSK SFX:off");
+}
 
 static int64_t trs_audio_silence_callback(alarm_id_t id, void *user_data)
 {
@@ -134,6 +208,7 @@ static void trs_audio_arm_silence_timer(void)
 
 static void trs_audio_stop(void)
 {
+    trs_disk_sfx_cancel();
     if (trs_audio_silence_alarm >= 0) {
         cancel_alarm(trs_audio_silence_alarm);
         trs_audio_silence_alarm = -1;
@@ -169,6 +244,8 @@ static void trs_audio_transition(int value)
         trs_audio_stop();
         return;
     }
+
+    trs_disk_sfx_cancel();
 
     value &= 0x03;
     now = z80_state.t_count;
@@ -647,6 +724,11 @@ void trs_sdl_init(void)
 void trs_disk_led(int drive, int on_off)
 {
     platform_set_disk_led(drive, on_off);
+#ifdef PICOCALC_PLATFORM
+    if (on_off) {
+        trs_disk_sfx_click(drive);
+    }
+#endif
 }
 
 void trs_hard_led(int drive, int on_off)
@@ -668,6 +750,12 @@ void trs_get_event(int wait)
             picocalc_press_trs_reset_button();
             return;
         }
+#ifdef PICOCALC_PLATFORM
+        if (keycode == PLATFORM_KEY_F4) {
+            trs_disk_sfx_toggle();
+            return;
+        }
+#endif
         trs_key_event(keycode);
     }
 }

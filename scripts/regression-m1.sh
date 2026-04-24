@@ -202,6 +202,14 @@ else
     check_fail "Operator panel/disk activity wiring missing"
 fi
 
+if grep -q "glyph_code >= 0x80 && glyph_code <= 0xBF" "${REPO_ROOT}/firmware/platform/platform_picocalc.c" &&
+   grep -q "graphics_code = (uint8_t)(glyph_code - 0x80)" "${REPO_ROOT}/firmware/platform/platform_picocalc.c" &&
+   grep -q "block_row \\* 2 + block_col" "${REPO_ROOT}/firmware/platform/platform_picocalc.c"; then
+    check_pass "Model III semigraphics use procedural 2x3 block rendering"
+else
+    check_fail "Procedural semigraphics renderer missing"
+fi
+
 if grep -q "keycode == PLATFORM_KEY_BREAK" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
    grep -q "trs_reset(0)" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
    grep -q "user_interrupt" "${REPO_ROOT}/firmware/platform/platform_picocalc.c"; then
@@ -231,6 +239,31 @@ if [[ -f "${REPO_ROOT}/docs/game-compatibility.md" ]] &&
     check_pass "Game compatibility matrix exists"
 else
     check_fail "Game compatibility matrix missing"
+fi
+
+if [[ -f "${REPO_ROOT}/docs/video-fidelity-checklist.md" ]] &&
+   grep -q "Semigraphics" "${REPO_ROOT}/docs/video-fidelity-checklist.md" &&
+   grep -q "Expanded text" "${REPO_ROOT}/docs/video-fidelity-checklist.md"; then
+    check_pass "Video fidelity checklist exists"
+else
+    check_fail "Video fidelity checklist missing"
+fi
+
+if [[ -f "${REPO_ROOT}/docs/fdc-soak-checklist.md" ]] &&
+   grep -q "FORMAT :1" "${REPO_ROOT}/docs/fdc-soak-checklist.md" &&
+   grep -q "BACKUP :0 :1" "${REPO_ROOT}/docs/fdc-soak-checklist.md"; then
+    check_pass "FDC soak checklist exists"
+else
+    check_fail "FDC soak checklist missing"
+fi
+
+if grep -q "PLATFORM_KEY_F4" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "trs_disk_sfx_click(drive)" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "trs_audio_current_hz != 0 || audio_is_playing()" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "DSK SFX:on" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c"; then
+    check_pass "Optional disk SFX toggle is wired safely"
+else
+    check_fail "Optional disk SFX toggle missing or unsafe"
 fi
 
 section "Optional Host Build"
