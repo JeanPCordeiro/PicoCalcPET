@@ -48,7 +48,7 @@ int resize3;
 int resize4;
 int text80x24;
 int trs_uart_switches;
-int trs_show_led;
+int trs_show_led = 1;
 int trs_keypad_joystick;
 int trs_charset1;
 int trs_charset3;
@@ -293,6 +293,15 @@ static void trs_render_cell(unsigned int position)
 
 static void trs_diag_publish(int force)
 {
+#if !PICOCALC_ENABLE_FDC_DIAG && !PICOCALC_ENABLE_DISK_FAULT_DIAG
+    if (!force) {
+        trs_diag_publish_tick++;
+        if ((trs_diag_publish_tick & 0x3Fu) != 0) {
+            return;
+        }
+    }
+    platform_status_refresh_operator((uint16_t)Z80_PC, z80_state.clockMHz, trs_sound != 0);
+#else
     char line0[80];
     char line1[80];
     char line2[80];
@@ -372,6 +381,7 @@ static void trs_diag_publish(int force)
     platform_status_write_line(0, line0);
     platform_status_write_line(1, line1);
     platform_status_write_line(2, line2);
+#endif
 }
 
 #if PICOCALC_ENABLE_FDC_DIAG

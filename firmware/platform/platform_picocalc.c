@@ -50,6 +50,23 @@ static bool picocalc_platform_initialised;
 static bool picocalc_use_trs_font;
 static uint16_t picocalc_trs_cell_buffer[PICOCALC_TRS_FONT_WIDTH * 2 * PICOCALC_TRS_FONT_HEIGHT];
 
+typedef struct {
+    char name[28];
+    bool present;
+    bool write_protected;
+    uint32_t active_until_ms;
+} picocalc_operator_disk_t;
+
+static char picocalc_operator_rom_source[8] = "--";
+static int picocalc_operator_rom_size;
+static picocalc_operator_disk_t picocalc_operator_disks[2];
+static bool picocalc_operator_enabled;
+static uint16_t picocalc_operator_last_pc;
+static float picocalc_operator_last_clock_mhz;
+static bool picocalc_operator_last_audio_enabled;
+
+#define PICOCALC_DISK_ACTIVITY_MS 250u
+
 static uint16_t picocalc_trs_foreground(void)
 {
     return PICOCALC_TRS_AMBER;
@@ -186,6 +203,107 @@ static void picocalc_write_line(int row, const char *text)
     picocalc_clear_line(row);
     for (col = 0; col < max_col && text[col] != '\0'; ++col) {
         lcd_putc((uint8_t)col, (uint8_t)row, (uint8_t)text[col]);
+    }
+}
+
+static const char *picocalc_leaf_name(const char *path)
+{
+    const char *cursor;
+    const char *leaf;
+
+    if (path == NULL || path[0] == '\0') {
+        return "none";
+    }
+
+    leaf = path;
+    for (cursor = path; *cursor != '\0'; ++cursor) {
+        if (*cursor == '/' || *cursor == '\\') {
+            leaf = cursor + 1;
+        }
+    }
+
+    return (leaf[0] != '\0') ? leaf : path;
+}
+
+static void picocalc_copy_disk_label(char *target, size_t target_size, const char *path)
+{
+    const char *leaf;
+    size_t len;
+
+    if (target == NULL || target_size == 0) {
+        return;
+    }
+
+    leaf = picocalc_leaf_name(path);
+    len = strlen(leaf);
+    if (len >= target_size) {
+        size_t keep = target_size - 2;
+        memcpy(target, leaf, keep);
+        target[keep] = '~';
+        target[keep + 1] = '\0';
+        return;
+    }
+
+    memcpy(target, leaf, len + 1);
+}
+
+static void picocalc_write_operator_line(int line, const char *text)
+{
+    char buffer[65];
+
+    if (text == NULL || line < 0 || line >= picocalc_status_rows) {
+        return;
+    }
+
+    snprintf(buffer, sizeof(buffer), "%-64.64s", text);
+    picocalc_write_line(picocalc_status_row + line, buffer);
+}
+
+static void picocalc_render_operator_panel(void)
+{
+    char line0[80];
+    char line1[96];
+    const char *d0_name;
+    const char *d1_name;
+    char d0_active;
+    char d1_active;
+    const char *d0_mode;
+    const char *d1_mode;
+    uint32_t now_ms;
+
+    if (!picocalc_operator_enabled || picocalc_status_rows <= 0) {
+        return;
+    }
+
+    now_ms = to_ms_since_boot(get_absolute_time());
+    d0_name = picocalc_operator_disks[0].present ? picocalc_operator_disks[0].name : "none";
+    d1_name = picocalc_operator_disks[1].present ? picocalc_operator_disks[1].name : "none";
+    d0_active = (picocalc_operator_disks[0].present &&
+                 now_ms < picocalc_operator_disks[0].active_until_ms) ? '*' : '.';
+    d1_active = (picocalc_operator_disks[1].present &&
+                 now_ms < picocalc_operator_disks[1].active_until_ms) ? '*' : '.';
+    d0_mode = picocalc_operator_disks[0].present
+        ? (picocalc_operator_disks[0].write_protected ? "ro" : "rw")
+        : "--";
+    d1_mode = picocalc_operator_disks[1].present
+        ? (picocalc_operator_disks[1].write_protected ? "ro" : "rw")
+        : "--";
+
+    snprintf(line0, sizeof(line0), "M3 %.2fMHz ROM:%s PC:%04X AUD:%s",
+             (double)picocalc_operator_last_clock_mhz,
+             picocalc_operator_rom_source,
+             (unsigned int)picocalc_operator_last_pc,
+             picocalc_operator_last_audio_enabled ? "on" : "off");
+    snprintf(line1, sizeof(line1), "D0:%c %-18.18s %s   D1:%c %-18.18s %s",
+             d0_active, d0_name, d0_mode,
+             d1_active, d1_name, d1_mode);
+
+    picocalc_write_operator_line(0, line0);
+    if (picocalc_status_rows > 1) {
+        picocalc_write_operator_line(1, line1);
+    }
+    if (picocalc_status_rows > 2) {
+        picocalc_write_operator_line(2, "ESC=BREAK  BRK=RESET");
     }
 }
 
@@ -382,6 +500,7 @@ void platform_status_clear(void)
         picocalc_clear_line(picocalc_status_row + line);
     }
     picocalc_status_next_line = 0;
+    picocalc_operator_enabled = false;
 }
 
 void platform_status_puts(const char *text)
@@ -389,6 +508,11 @@ void platform_status_puts(const char *text)
     int line;
 
     if (text == NULL || picocalc_status_rows <= 0) {
+        return;
+    }
+
+    if (picocalc_operator_enabled) {
+        picocalc_write_operator_line((picocalc_status_rows > 2) ? 2 : 0, text);
         return;
     }
 
@@ -410,10 +534,70 @@ void platform_status_write_line(int line, const char *text)
     picocalc_write_line(picocalc_status_row + line, text);
 }
 
+void platform_status_set_operator_context(const char *rom_source, int rom_size,
+                                          const char *disk0_path, bool disk0_present, bool disk0_write_protected,
+                                          const char *disk1_path, bool disk1_present, bool disk1_write_protected)
+{
+    snprintf(picocalc_operator_rom_source, sizeof(picocalc_operator_rom_source),
+             "%s", (rom_source != NULL && rom_source[0] != '\0') ? rom_source : "--");
+    picocalc_operator_rom_size = rom_size;
+    (void)picocalc_operator_rom_size;
+
+    picocalc_operator_disks[0].present = disk0_present;
+    picocalc_operator_disks[0].write_protected = disk0_write_protected;
+    picocalc_operator_disks[0].active_until_ms = 0;
+    picocalc_copy_disk_label(picocalc_operator_disks[0].name,
+                             sizeof(picocalc_operator_disks[0].name), disk0_path);
+
+    picocalc_operator_disks[1].present = disk1_present;
+    picocalc_operator_disks[1].write_protected = disk1_write_protected;
+    picocalc_operator_disks[1].active_until_ms = 0;
+    picocalc_copy_disk_label(picocalc_operator_disks[1].name,
+                             sizeof(picocalc_operator_disks[1].name), disk1_path);
+
+    picocalc_operator_enabled = true;
+    picocalc_render_operator_panel();
+}
+
+void platform_status_refresh_operator(uint16_t pc, float clock_mhz, bool audio_enabled)
+{
+    if (!picocalc_operator_enabled) {
+        return;
+    }
+
+    picocalc_operator_last_pc = pc;
+    picocalc_operator_last_clock_mhz = clock_mhz;
+    picocalc_operator_last_audio_enabled = audio_enabled;
+    picocalc_render_operator_panel();
+}
+
 void platform_set_disk_led(int drive, int on_off)
 {
-    (void)drive;
-    (void)on_off;
+    if (drive < 0) {
+        int i;
+        for (i = 0; i < 2; ++i) {
+            picocalc_operator_disks[i].active_until_ms = 0;
+        }
+        picocalc_render_operator_panel();
+        return;
+    }
+
+    if (drive < 0 || drive >= 2) {
+        return;
+    }
+
+    if (on_off) {
+        uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+        bool was_active = now_ms < picocalc_operator_disks[drive].active_until_ms;
+        picocalc_operator_disks[drive].active_until_ms =
+            now_ms + PICOCALC_DISK_ACTIVITY_MS;
+        if (was_active) {
+            return;
+        }
+    } else {
+        picocalc_operator_disks[drive].active_until_ms = 0;
+    }
+    picocalc_render_operator_panel();
 }
 
 void platform_set_hard_led(int drive, int on_off)

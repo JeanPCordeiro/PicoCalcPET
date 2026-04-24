@@ -121,27 +121,15 @@ static void show_runtime_status(bool disk0_found, const char *disk0_path,
 {
     const char *rom_label;
 
-    rom_label = (strncmp(romfile3, "embedded:", 9) == 0) ? "embedded" : "file";
+    rom_label = (strncmp(romfile3, "embedded:", 9) == 0) ? "EMB" : "SD";
 
     platform_status_clear();
-    status_printf("ROM:%s %dB PC:%04X D0:%c D1:%c",
-                  rom_label,
-                  trs_rom_size,
-                  Z80_PC,
-                  disk0_found ? 'Y' : 'N',
-                  disk1_found ? 'Y' : 'N');
-    if (disk0_found) {
-        status_printf("Disk0:%s (%s)", status_leaf_name(disk0_path),
-                      trs_disk_getwriteprotect(0) ? "ro" : "rw");
-    } else {
-        platform_status_puts("Disk0:none");
-    }
-    if (disk1_found) {
-        status_printf("Disk1:%s (%s)", status_leaf_name(disk1_path),
-                      trs_disk_getwriteprotect(1) ? "ro" : "rw");
-    } else {
-        platform_status_puts("Disk1:none");
-    }
+    platform_status_set_operator_context(rom_label, trs_rom_size,
+                                         disk0_path, disk0_found,
+                                         disk0_found && trs_disk_getwriteprotect(0),
+                                         disk1_path, disk1_found,
+                                         disk1_found && trs_disk_getwriteprotect(1));
+    platform_status_refresh_operator((uint16_t)Z80_PC, z80_state.clockMHz, trs_sound != 0);
 }
 
 static void show_missing_rom_screen(void)

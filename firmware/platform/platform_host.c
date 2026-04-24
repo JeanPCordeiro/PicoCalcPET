@@ -75,6 +75,33 @@ void platform_status_puts(const char *text)
     fprintf(stderr, "%s\n", text);
 }
 
+void platform_status_write_line(int line, const char *text)
+{
+    (void)line;
+    platform_status_puts(text);
+}
+
+void platform_status_set_operator_context(const char *rom_source, int rom_size,
+                                          const char *disk0_path, bool disk0_present, bool disk0_write_protected,
+                                          const char *disk1_path, bool disk1_present, bool disk1_write_protected)
+{
+    (void)rom_source;
+    (void)rom_size;
+    (void)disk0_path;
+    (void)disk0_present;
+    (void)disk0_write_protected;
+    (void)disk1_path;
+    (void)disk1_present;
+    (void)disk1_write_protected;
+}
+
+void platform_status_refresh_operator(uint16_t pc, float clock_mhz, bool audio_enabled)
+{
+    (void)pc;
+    (void)clock_mhz;
+    (void)audio_enabled;
+}
+
 void platform_set_disk_led(int drive, int on_off)
 {
     (void)drive;
