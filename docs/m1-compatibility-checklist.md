@@ -23,9 +23,10 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 - Model III ROM:
   - `/TRS80/ROMS/model3.rom` on SD, or embedded ROM fallback
 - Disk images:
-  - `/TRS80/DISKS/disk0.dmk` (LDOS 5.3.1 media)
-  - `/TRS80/DISKS/disk1.dmk` (optional second disk)
-  - alternate smoke: copy `TRSDOS13.DSK` to `/TRS80/DISKS/disk0.DSK`
+  - put LDOS/TRSDOS/media images directly under `/TRS80/DISKS`
+  - alternate smoke: copy `TRSDOS13.DSK` to `/TRS80/DISKS`
+  - image filenames do not need to follow any drive naming convention
+  - hidden files such as `.hidden.dmk` should not appear in the picker
 
 ## Core Boot Cases
 
@@ -37,9 +38,15 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 - Expect ROM load from SD.
 - Expect status lines showing ROM and disk detection.
 
-3. `SD + disk0 present` boot to DOS:
+3. `SD + selected boot disk` boot to DOS:
 - Expect DOS prompt path (`Date?`/`Time?` flow where applicable).
 - No loop with `Unknown error code`.
+
+4. `Disk picker` startup:
+- Expect D0 picker to list only `.DSK`, `.DMK`, `.JV1`, and `.JV3` images from `/TRS80/DISKS`.
+- Expect dot-prefixed files to be hidden.
+- Select an image for D0 and `none` for D1; expect only D0 to mount.
+- Select `none` for D0 and D1; expect ROM BASIC boot with no disk controller attached.
 
 ## DOS/BASIC Functional Cases
 
@@ -63,7 +70,7 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 ## FDC/Drive Selection Cases
 
 1. Two-drive behavior:
-- Insert disk0 and disk1.
+- Select two disk images in the startup picker.
 - Access both drives from DOS commands.
 - Expect drive 0 and 1 usable.
 

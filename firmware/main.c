@@ -14,6 +14,8 @@ extern const char *program_name;
 
 #define PICOCALC_TRS_ROM_DIR "/TRS80/ROMS"
 #define PICOCALC_TRS_DISK_DIR "/TRS80/DISKS"
+#define PICOCALC_DISK_PICKER_MAX_IMAGES 64
+#define PICOCALC_DISK_PICKER_VISIBLE_ROWS 8
 
 static void write_line_centered(int row, const char *text)
 {
@@ -59,6 +61,15 @@ static void clear_line_cells(int row)
 
     for (col = 0; col < 64; ++col) {
         platform_screen_write_cell(col, row, ' ', 0);
+    }
+}
+
+static void clear_screen_cells(void)
+{
+    int row;
+
+    for (row = 0; row < 16; ++row) {
+        clear_line_cells(row);
     }
 }
 
@@ -202,21 +213,10 @@ static bool select_model3_rom_path(int argc, char **argv)
 static bool select_disk_path(int argc, char **argv, int drive,
                              char *buffer, size_t buffer_size)
 {
-    static const char *extensions[] = {
-        ".dsk",
-        ".dmk",
-        ".jv3",
-        ".jv1",
-        ".DSK",
-        ".DMK",
-        ".JV3",
-        ".JV1"
-    };
     const char *env_name;
     const char *env_path;
     int arg_index;
-    char candidate[FILENAME_MAX];
-    size_t ext_index;
+
     if (buffer == NULL || buffer_size == 0) {
         return false;
     }
@@ -238,16 +238,161 @@ static bool select_disk_path(int argc, char **argv, int drive,
         return true;
     }
 
-    for (ext_index = 0; ext_index < (sizeof(extensions) / sizeof(extensions[0])); ++ext_index) {
-        snprintf(candidate, sizeof(candidate), PICOCALC_TRS_DISK_DIR "/disk%d%s", drive, extensions[ext_index]);
-        if (platform_file_exists(candidate)) {
-            strncpy(buffer, candidate, buffer_size - 1);
-            buffer[buffer_size - 1] = '\0';
-            return true;
-        }
+    return false;
+}
+
+static void build_disk_image_path(const char *name, char *buffer, size_t buffer_size)
+{
+    if (buffer == NULL || buffer_size == 0) {
+        return;
     }
 
-    return false;
+    if (name == NULL || name[0] == '\0') {
+        buffer[0] = '\0';
+        return;
+    }
+
+    snprintf(buffer, buffer_size, PICOCALC_TRS_DISK_DIR "/%s", name);
+}
+
+static void draw_disk_picker(int drive, const platform_disk_image_t *images,
+                             int image_count, int selected, int top,
+                             int list_error)
+{
+    char line[65];
+    int row;
+    int index;
+
+    clear_screen_cells();
+    snprintf(line, sizeof(line), "Select disk image for D%d", drive);
+    write_line_centered(1, line);
+    write_line_centered(2, PICOCALC_TRS_DISK_DIR);
+
+    if (list_error) {
+        snprintf(line, sizeof(line), "Directory unavailable: %s",
+                 platform_last_file_error());
+        write_line(4, line);
+    } else if (image_count == 0) {
+        write_line_centered(4, "No disk images found");
+    }
+
+    for (row = 0; row < PICOCALC_DISK_PICKER_VISIBLE_ROWS; ++row) {
+        index = top + row;
+        if (index > image_count) {
+            break;
+        }
+
+        if (index == 0) {
+            snprintf(line, sizeof(line), "%c none",
+                     selected == index ? '>' : ' ');
+        } else {
+            snprintf(line, sizeof(line), "%c %s",
+                     selected == index ? '>' : ' ',
+                     images[index - 1].name);
+        }
+        write_line(5 + row, line);
+    }
+
+    write_line_centered(14, "Up/Down choose  Enter attach  N none");
+    platform_screen_flush();
+}
+
+static bool run_disk_picker_for_drive(int drive, const platform_disk_image_t *images,
+                                      int image_count, int list_error,
+                                      char *buffer, size_t buffer_size)
+{
+    int selected;
+    int top = 0;
+    int key;
+    int max_selection = image_count;
+
+    if (buffer == NULL || buffer_size == 0) {
+        return false;
+    }
+
+    selected = (image_count > 0) ? 1 : 0;
+
+    for (;;) {
+        if (selected < top) {
+            top = selected;
+        } else if (selected >= top + PICOCALC_DISK_PICKER_VISIBLE_ROWS) {
+            top = selected - PICOCALC_DISK_PICKER_VISIBLE_ROWS + 1;
+        }
+
+        draw_disk_picker(drive, images, image_count, selected, top, list_error);
+        if (!platform_poll_key(&key, true)) {
+            continue;
+        }
+
+        switch (key) {
+        case PLATFORM_KEY_UP:
+            if (selected > 0) {
+                selected--;
+            }
+            break;
+        case PLATFORM_KEY_DOWN:
+            if (selected < max_selection) {
+                selected++;
+            }
+            break;
+        case PLATFORM_KEY_PAGE_UP:
+            selected -= PICOCALC_DISK_PICKER_VISIBLE_ROWS;
+            if (selected < 0) {
+                selected = 0;
+            }
+            break;
+        case PLATFORM_KEY_PAGE_DOWN:
+            selected += PICOCALC_DISK_PICKER_VISIBLE_ROWS;
+            if (selected > max_selection) {
+                selected = max_selection;
+            }
+            break;
+        case PLATFORM_KEY_HOME:
+            selected = 0;
+            break;
+        case PLATFORM_KEY_END:
+            selected = max_selection;
+            break;
+        case PLATFORM_KEY_ENTER:
+            if (selected == 0) {
+                buffer[0] = '\0';
+                return false;
+            }
+            build_disk_image_path(images[selected - 1].name, buffer, buffer_size);
+            return true;
+        case 'n':
+        case 'N':
+        case '0':
+        case PLATFORM_KEY_BACKSPACE:
+        case PLATFORM_KEY_ESC:
+            buffer[0] = '\0';
+            return false;
+        default:
+            break;
+        }
+    }
+}
+
+static void run_disk_picker(char *disk0_path, size_t disk0_path_size,
+                            char *disk1_path, size_t disk1_path_size,
+                            bool *disk0_found, bool *disk1_found)
+{
+    platform_disk_image_t images[PICOCALC_DISK_PICKER_MAX_IMAGES];
+    int image_count;
+    int list_error = 0;
+
+    show_boot_stage("Reading disk directory...");
+    image_count = platform_list_disk_images(PICOCALC_TRS_DISK_DIR, images,
+                                            PICOCALC_DISK_PICKER_MAX_IMAGES);
+    if (image_count < 0) {
+        image_count = 0;
+        list_error = 1;
+    }
+
+    *disk0_found = run_disk_picker_for_drive(0, images, image_count, list_error,
+                                             disk0_path, disk0_path_size);
+    *disk1_found = run_disk_picker_for_drive(1, images, image_count, list_error,
+                                             disk1_path, disk1_path_size);
 }
 
 int main(int argc, char **argv)
@@ -258,6 +403,7 @@ int main(int argc, char **argv)
     bool rom_found;
     bool disk0_found;
     bool disk1_found;
+    bool disk_args_used = false;
 
     program_name = "PicoCalcTRS";
 
@@ -299,8 +445,19 @@ int main(int argc, char **argv)
         }
 
         show_boot_stage("Probing disks...");
-        disk0_found = select_disk_path(argc, argv, 0, disk0_path, sizeof(disk0_path));
-        disk1_found = select_disk_path(argc, argv, 1, disk1_path, sizeof(disk1_path));
+        if (argc > 2 || getenv("PICOCALC_TRS_DISK0") != NULL ||
+            getenv("PICOCALC_TRS_DISK1") != NULL) {
+            disk0_found = select_disk_path(argc, argv, 0, disk0_path, sizeof(disk0_path));
+            disk1_found = select_disk_path(argc, argv, 1, disk1_path, sizeof(disk1_path));
+            disk_args_used = true;
+        } else {
+            run_disk_picker(disk0_path, sizeof(disk0_path),
+                            disk1_path, sizeof(disk1_path),
+                            &disk0_found, &disk1_found);
+        }
+        if (disk_args_used) {
+            platform_status_puts("Boot: disks from args/env");
+        }
         status_printf("Boot: D0:%c D1:%c", disk0_found ? 'Y' : 'N', disk1_found ? 'Y' : 'N');
     }
     if (!rom_found) {

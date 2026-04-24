@@ -25,7 +25,7 @@ This repository now uses a vendor+patch model for core `sdltrs` emulation files 
   - `trs_interrupt.c` via local post-reset policy scrub (`firmware/emu/picocalc_reset_policy.c`)
 - Legacy `firmware/emu/*_embedded.c` files are no longer compiled by Pico builds.
 - `grafyx_m3_read_byte()` / `grafyx_m3_write_byte()` behavior now lives in local frontend stubs (`firmware/emu/sdltrs_peripheral_stubs.c`), so the memory patch only carries RAM-size constraints.
-- Runtime SD-card paths are local firmware policy: ROMs under `/TRS80/ROMS`, disk images under `/TRS80/DISKS`.
+- Runtime SD-card paths and the startup disk picker are local firmware policy: ROMs under `/TRS80/ROMS`, disk images under `/TRS80/DISKS`.
 
 ## Update flow when upstream changes
 

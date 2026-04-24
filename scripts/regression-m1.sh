@@ -153,6 +153,29 @@ else
     check_fail "Runtime disk directory is not /TRS80/DISKS"
 fi
 
+if grep -q "platform_list_disk_images" "${REPO_ROOT}/firmware/main.c" &&
+   grep -q "run_disk_picker_for_drive" "${REPO_ROOT}/firmware/main.c"; then
+    check_pass "Startup disk picker is wired into firmware"
+else
+    check_fail "Startup disk picker wiring missing"
+fi
+
+if grep -q 'disk%d' "${REPO_ROOT}/firmware/main.c"; then
+    check_fail "Legacy disk0/disk1 filename probing is still present"
+else
+    check_pass "Legacy disk0/disk1 filename probing is absent"
+fi
+
+if grep -q "name\\[0\\] == '.'" "${REPO_ROOT}/firmware/platform/platform_picocalc.c" &&
+   grep -q '".dsk"' "${REPO_ROOT}/firmware/platform/platform_picocalc.c" &&
+   grep -q '".dmk"' "${REPO_ROOT}/firmware/platform/platform_picocalc.c" &&
+   grep -q '".jv1"' "${REPO_ROOT}/firmware/platform/platform_picocalc.c" &&
+   grep -q '".jv3"' "${REPO_ROOT}/firmware/platform/platform_picocalc.c"; then
+    check_pass "Disk picker filters dotfiles and supported image extensions"
+else
+    check_fail "Disk picker filter guard failed"
+fi
+
 section "Optional Host Build"
 if [[ "${RUN_HOST_BUILD}" == "1" ]]; then
     host_build_dir="${REPO_ROOT}/build-m1-host"

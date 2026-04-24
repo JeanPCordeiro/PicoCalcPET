@@ -61,17 +61,21 @@ Current firmware status is beyond initial bring-up:
 - The firmware artifact is `PicoCalcTRS.uf2`.
 - SD-card ROM lookup uses `/TRS80/ROMS`.
 - SD-card disk lookup uses `/TRS80/DISKS`.
+- Startup includes a disk file picker for attaching images to D0 and D1, including `none`.
+- Disk image filenames are not special-cased; the picker attaches whichever listed image the user selects.
+- Regression guards ensure the old `disk0.*`/`disk1.*` filename probing does not return.
 
 Expected SD-card layout:
 
 ```text
 /TRS80/ROMS/model3.rom
 /TRS80/ROMS/trs80m3.rom
-/TRS80/DISKS/disk0.dsk
-/TRS80/DISKS/disk1.dsk
+/TRS80/DISKS/ldos.dmk
+/TRS80/DISKS/games.dsk
 ```
 
 Disk images may also use `.dmk`, `.jv3`, or `.jv1`; uppercase extensions are accepted.
+Files whose names begin with `.` are hidden from the picker.
 
 ## Roadmap
 

@@ -4,6 +4,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define PLATFORM_DISK_IMAGE_NAME_MAX 96
+
+typedef struct {
+    char name[PLATFORM_DISK_IMAGE_NAME_MAX];
+} platform_disk_image_t;
+
 enum {
     PLATFORM_KEY_NONE = 0,
     PLATFORM_KEY_UP = 0x100,
@@ -43,6 +49,7 @@ void platform_set_disk_led(int drive, int on_off);
 void platform_set_hard_led(int drive, int on_off);
 void platform_set_turbo_led(bool enabled);
 bool platform_file_exists(const char *path);
+int platform_list_disk_images(const char *dir_path, platform_disk_image_t *images, int max_images);
 int platform_last_file_error_code(void);
 const char *platform_last_file_error(void);
 int platform_sd_detect_state(void);

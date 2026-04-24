@@ -151,7 +151,11 @@ The firmware currently looks for a Model III ROM in this order:
 3. `/TRS80/ROMS/model3.rom`
 4. `/TRS80/ROMS/trs80m3.rom`
 
-Disk images are auto-detected under `/TRS80/DISKS` as `disk0` and `disk1` with `.dsk`, `.dmk`, `.jv3`, or `.jv1` extensions. Uppercase extensions are also accepted.
+At startup, the firmware shows a disk picker for D0 and D1. The picker lists files under `/TRS80/DISKS`, lets either drive be set to `none`, and accepts only `.dsk`, `.dmk`, `.jv1`, or `.jv3` extensions. Uppercase extensions are also accepted. Files whose names begin with `.` are hidden.
+
+If no command-line or environment disk override is present, the picker is used. When disk images are available, the selector starts on the first listed image; otherwise it starts on `none`.
+
+There is no automatic `disk0.*`/`disk1.*` filename convention. Any visible supported disk image can be selected for either drive.
 
 On PicoCalc, the existence checks are routed through the FAT32 layer.
 
@@ -180,6 +184,9 @@ What it checks:
 - expected `sdltrs` patch set shape (`0001`, `0004`)
 - UF2 artifact presence and hash/size capture
 - compile-time `trs_cmd_rom` shim injection guard
+- runtime ROM/disk directory guards
+- disk picker wiring and filter guards
+- guard against legacy `disk0.*`/`disk1.*` filename probing
 - optional host build (`RUN_HOST_BUILD=1`)
 
 For on-device verification, use:

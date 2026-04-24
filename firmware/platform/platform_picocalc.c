@@ -2,8 +2,11 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
+#include <strings.h>
 
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
@@ -409,7 +412,7 @@ void platform_set_turbo_led(bool enabled)
 bool platform_file_exists(const char *path)
 {
     fat32_file_t file;
-    fat32_error_t result;
+    fat32_error_t result = FAT32_ERROR_INIT_FAILED;
     int attempt;
 
     if (path == NULL || path[0] == '\0') {
@@ -437,6 +440,107 @@ bool platform_file_exists(const char *path)
     }
 
     return false;
+}
+
+static int picocalc_ascii_tolower(int ch)
+{
+    if (ch >= 'A' && ch <= 'Z') {
+        return ch + ('a' - 'A');
+    }
+
+    return ch;
+}
+
+static bool picocalc_disk_image_extension_allowed(const char *name)
+{
+    const char *dot;
+    char ext[5];
+    size_t i;
+
+    if (name == NULL || name[0] == '\0' || name[0] == '.') {
+        return false;
+    }
+
+    dot = strrchr(name, '.');
+    if (dot == NULL || strlen(dot) != 4) {
+        return false;
+    }
+
+    for (i = 0; i < 4; ++i) {
+        ext[i] = (char)picocalc_ascii_tolower((unsigned char)dot[i]);
+    }
+    ext[4] = '\0';
+
+    return strcmp(ext, ".dsk") == 0 ||
+           strcmp(ext, ".dmk") == 0 ||
+           strcmp(ext, ".jv1") == 0 ||
+           strcmp(ext, ".jv3") == 0;
+}
+
+static int picocalc_disk_image_compare(const void *left, const void *right)
+{
+    const platform_disk_image_t *left_image = left;
+    const platform_disk_image_t *right_image = right;
+
+    return strcasecmp(left_image->name, right_image->name);
+}
+
+int platform_list_disk_images(const char *dir_path, platform_disk_image_t *images, int max_images)
+{
+    fat32_file_t dir;
+    fat32_entry_t entry;
+    fat32_error_t result;
+    int count = 0;
+    int attempt;
+
+    if (dir_path == NULL || images == NULL || max_images <= 0) {
+        picocalc_last_file_error = FAT32_ERROR_INVALID_PARAMETER;
+        return -1;
+    }
+
+    for (attempt = 0; attempt < 8; ++attempt) {
+        result = fat32_open(&dir, dir_path);
+        if (result == FAT32_OK) {
+            break;
+        }
+
+        picocalc_last_file_error = result;
+        if (result == FAT32_ERROR_FILE_NOT_FOUND ||
+            result == FAT32_ERROR_DIR_NOT_FOUND ||
+            result == FAT32_ERROR_INVALID_PATH ||
+            result == FAT32_ERROR_NOT_A_FILE ||
+            result == FAT32_ERROR_NOT_A_DIRECTORY) {
+            return -1;
+        }
+        sleep_ms(250);
+    }
+
+    if (result != FAT32_OK) {
+        picocalc_last_file_error = result;
+        return -1;
+    }
+
+    if ((dir.attributes & FAT32_ATTR_DIRECTORY) == 0) {
+        fat32_close(&dir);
+        picocalc_last_file_error = FAT32_ERROR_NOT_A_DIRECTORY;
+        return -1;
+    }
+
+    while (fat32_dir_read(&dir, &entry) == FAT32_OK && entry.filename[0] != '\0') {
+        if ((entry.attr & FAT32_ATTR_DIRECTORY) == 0 &&
+            picocalc_disk_image_extension_allowed(entry.filename)) {
+            if (count < max_images) {
+                strncpy(images[count].name, entry.filename, PLATFORM_DISK_IMAGE_NAME_MAX - 1);
+                images[count].name[PLATFORM_DISK_IMAGE_NAME_MAX - 1] = '\0';
+                count++;
+            }
+        }
+    }
+
+    fat32_close(&dir);
+    qsort(images, (size_t)count, sizeof(images[0]), picocalc_disk_image_compare);
+    picocalc_last_file_error = FAT32_OK;
+    return count;
 }
 
 int platform_last_file_error_code(void)

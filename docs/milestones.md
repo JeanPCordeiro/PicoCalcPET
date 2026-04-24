@@ -9,6 +9,9 @@
 - Firmware target/artifact is now named `PicoCalcTRS`.
 - Build path emits `dist/PicoCalcTRS.uf2` and supports quiet release plus optional diagnostics.
 - Runtime SD-card layout is `/TRS80/ROMS` for ROMs and `/TRS80/DISKS` for disks.
+- Startup disk picker attaches images to D0/D1 or leaves either drive as `none`.
+- Disk filenames are picker-selected; there is no automatic `disk0.*`/`disk1.*` filename convention.
+- M1 regression now guards the disk picker wiring, supported extension filter, hidden-file filter, and absence of legacy filename probing.
 
 ---
 
@@ -26,6 +29,7 @@ Make every firmware iteration repeatable and safe by combining:
 - [m1-compatibility-checklist.md](/workspaces/PicoCalcTRS/docs/m1-compatibility-checklist.md)
 - generated run report at `dist/regression/m1-report.txt`
 - stable UF2 copy at `dist/PicoCalcTRS.uf2`
+- guards for runtime ROM/disk directories and disk picker policy
 
 ---
 

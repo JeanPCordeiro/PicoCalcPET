@@ -115,6 +115,16 @@ bool platform_file_exists(const char *path)
     return true;
 }
 
+int platform_list_disk_images(const char *dir_path, platform_disk_image_t *images, int max_images)
+{
+    (void)dir_path;
+    (void)images;
+    (void)max_images;
+    host_last_file_error = -3;
+    host_last_file_error_text = "host disk picker unavailable";
+    return -1;
+}
+
 int platform_last_file_error_code(void)
 {
     return host_last_file_error;
