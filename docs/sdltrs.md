@@ -217,6 +217,11 @@ Recommended policy:
 - exclude cassette and sound for the first bring-up
 - defer audio integration until ROM boot, screen, and keyboard work
 
+Current firmware note:
+
+- standard Model III cassette-port game sound is implemented in PicoCalc-owned frontend code, not by linking upstream `trs_cassette.c`
+- cassette data I/O remains stubbed
+
 ## Build Notes For This Repository
 
 The upstream build expects desktop dependencies:

@@ -178,7 +178,7 @@ Success criteria:
 
 Optional after the machine is usable:
 
-- sound
+- broader sound compatibility; standard Model III cassette-port game sound is already active
 - cassette
 - configuration UI
 - save states

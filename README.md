@@ -44,7 +44,6 @@ That milestone avoided the riskiest peripherals at first:
 
 - floppy controller
 - cassette
-- sound
 - printer
 - debugger UI
 - desktop SDL menus
@@ -66,6 +65,7 @@ Current firmware status is beyond initial bring-up:
 - Regression guards ensure the old `disk0.*`/`disk1.*` filename probing does not return.
 - PicoCalc Esc maps to TRS BREAK; PicoCalc BRK (Shift+Esc) maps to the TRS reset button.
 - The SDL timing shim uses Pico SDK time so the Z80 throttle path can target real Model III speed.
+- Standard Model III cassette-port game sound is wired to the PicoCalc PWM audio driver, with rate-limited updates for timing-heavy games such as SCARFMAN.
 - Current M1 regression status: 20 automated checks passing, 0 failing.
 
 Expected SD-card layout:

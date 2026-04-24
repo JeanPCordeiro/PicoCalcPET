@@ -93,6 +93,14 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 1. Timing-sensitive game:
 - Run a game such as SCARFMAN.
 - Expect gameplay speed to be close to a real Model III, not RP2350 flat-out speed.
+- Expect game sound to play without hanging the system.
+
+## Audio Cases
+
+1. Model III cassette-port game sound:
+- Run SCARFMAN or another game that uses standard Model III sound.
+- Expect audible game sound from the PicoCalc audio output.
+- Expect no lockup during startup, gameplay, or rapid sound effects.
 
 ## Video/UI Cases
 
@@ -121,4 +129,5 @@ Record results in a simple table per run:
 - `CMD"S"` (`pass/fail`)
 - `FORMAT :1` (`pass/fail`)
 - `BACKUP :0 :1` (`pass/fail`)
+- `SCARFMAN audio` (`pass/fail`)
 - `Notes`

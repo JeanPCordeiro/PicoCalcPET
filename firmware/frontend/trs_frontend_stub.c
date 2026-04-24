@@ -4,9 +4,15 @@
 #include <limits.h>
 
 #include "trs.h"
+#include "z80.h"
 #include "trs_keyboard_internal.h"
 #include "platform/platform.h"
 #include "emu/picocalc_reset_policy.h"
+
+#ifdef PICOCALC_PLATFORM
+#include "pico/time.h"
+#include "drivers/audio.h"
+#endif
 
 #ifndef PICOCALC_ENABLE_FDC_DIAG
 #define PICOCALC_ENABLE_FDC_DIAG 0
@@ -49,7 +55,7 @@ int trs_charset3;
 int trs_charset4;
 int trs_paused;
 int trs_printer;
-int trs_sound;
+int trs_sound = 1;
 
 typedef struct {
     Uint8 ch;
@@ -79,6 +85,136 @@ static unsigned int trs_diag_cursor_count;
 static unsigned int trs_diag_oob_count;
 static unsigned int trs_diag_publish_tick;
 static char trs_diag_disk_fault_line[80];
+#ifdef PICOCALC_PLATFORM
+static int trs_audio_cassette_motor;
+static int trs_audio_last_value;
+static int trs_audio_have_value;
+static tstate_t trs_audio_last_transition;
+static unsigned int trs_audio_current_hz;
+static uint32_t trs_audio_last_activity_ms;
+static uint32_t trs_audio_last_update_ms;
+static alarm_id_t trs_audio_silence_alarm = -1;
+
+#define TRS_AUDIO_MIN_HZ 100u
+#define TRS_AUDIO_MAX_HZ 2000u
+#define TRS_AUDIO_IDLE_MS 35
+#define TRS_AUDIO_UPDATE_MS 8
+#define TRS_AUDIO_HZ_DEADBAND 8u
+
+static int64_t trs_audio_silence_callback(alarm_id_t id, void *user_data)
+{
+    uint32_t now_ms;
+    uint32_t idle_ms;
+
+    (void)user_data;
+    if (trs_audio_silence_alarm != id) {
+        return 0;
+    }
+
+    now_ms = to_ms_since_boot(get_absolute_time());
+    idle_ms = now_ms - trs_audio_last_activity_ms;
+    if (idle_ms < TRS_AUDIO_IDLE_MS) {
+        return (int64_t)(TRS_AUDIO_IDLE_MS - idle_ms) * 1000;
+    }
+
+    audio_stop();
+    trs_audio_silence_alarm = -1;
+    trs_audio_current_hz = 0;
+    return 0;
+}
+
+static void trs_audio_arm_silence_timer(void)
+{
+    if (trs_audio_silence_alarm < 0) {
+        trs_audio_silence_alarm = add_alarm_in_ms(TRS_AUDIO_IDLE_MS,
+                                                  trs_audio_silence_callback,
+                                                  NULL, false);
+    }
+}
+
+static void trs_audio_stop(void)
+{
+    if (trs_audio_silence_alarm >= 0) {
+        cancel_alarm(trs_audio_silence_alarm);
+        trs_audio_silence_alarm = -1;
+    }
+    audio_stop();
+    trs_audio_have_value = 0;
+    trs_audio_current_hz = 0;
+    trs_audio_last_update_ms = 0;
+}
+
+static int trs_audio_frequency_changed(unsigned int hz)
+{
+    unsigned int delta;
+
+    if (trs_audio_current_hz == 0) {
+        return 1;
+    }
+
+    delta = (trs_audio_current_hz > hz)
+        ? trs_audio_current_hz - hz
+        : hz - trs_audio_current_hz;
+    return delta >= TRS_AUDIO_HZ_DEADBAND;
+}
+
+static void trs_audio_transition(int value)
+{
+    tstate_t now;
+    tstate_t delta_t;
+    uint32_t now_ms;
+    unsigned int hz;
+
+    if (!trs_sound || trs_audio_cassette_motor) {
+        trs_audio_stop();
+        return;
+    }
+
+    value &= 0x03;
+    now = z80_state.t_count;
+    if (!trs_audio_have_value) {
+        trs_audio_last_value = value;
+        trs_audio_last_transition = now;
+        trs_audio_have_value = (value != 0);
+        return;
+    }
+
+    if (value == trs_audio_last_value) {
+        return;
+    }
+
+    delta_t = now - trs_audio_last_transition;
+    trs_audio_last_value = value;
+    trs_audio_last_transition = now;
+
+    if (delta_t == 0 || z80_state.clockMHz <= 0.0f) {
+        return;
+    }
+
+    hz = (unsigned int)((z80_state.clockMHz * 1000000.0f) /
+                        (2.0f * (float)delta_t) + 0.5f);
+    if (hz < TRS_AUDIO_MIN_HZ || hz > TRS_AUDIO_MAX_HZ) {
+        return;
+    }
+
+    now_ms = to_ms_since_boot(get_absolute_time());
+    trs_audio_last_activity_ms = now_ms;
+    trs_audio_arm_silence_timer();
+
+    if (trs_audio_current_hz != 0) {
+        if (now_ms - trs_audio_last_update_ms < TRS_AUDIO_UPDATE_MS) {
+            return;
+        }
+        if (!trs_audio_frequency_changed(hz)) {
+            return;
+        }
+    }
+
+    audio_play_sound(hz, hz);
+    trs_audio_current_hz = hz;
+    trs_audio_last_update_ms = now_ms;
+}
+#endif
 #if PICOCALC_ENABLE_FDC_DIAG
 static Uint8 trs_diag_fdc_tag = '?';
 static Uint8 trs_diag_fdc_value;
@@ -549,12 +685,23 @@ int trs_printer_reset(void)
 
 void trs_cassette_motor(int value)
 {
+#ifdef PICOCALC_PLATFORM
+    trs_audio_cassette_motor = value ? 1 : 0;
+    if (trs_audio_cassette_motor) {
+        trs_audio_stop();
+    }
+#else
     (void)value;
+#endif
 }
 
 void trs_cassette_out(int value)
 {
+#ifdef PICOCALC_PLATFORM
+    trs_audio_transition(value);
+#else
     (void)value;
+#endif
 }
 
 int trs_cassette_in(void)
@@ -564,7 +711,11 @@ int trs_cassette_in(void)
 
 void trs_sound_out(int value)
 {
+#ifdef PICOCALC_PLATFORM
+    trs_audio_transition(value ? 1 : 2);
+#else
     (void)value;
+#endif
 }
 
 void trs_get_mouse_pos(int *x, int *y, unsigned int *buttons)

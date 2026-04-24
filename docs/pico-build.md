@@ -122,7 +122,8 @@ The Pico path is now functional for ROM + DOS/BASIC + two-drive workflows, but n
 
 Remaining limits:
 
-- cassette/audio/printer remain stubbed
+- cassette data I/O and printer remain stubbed
+- Model III cassette-port game sound is implemented through PicoCalc PWM audio
 - no RTC emulation (DOS date/time prompts follow Model III behavior)
 - write-heavy disk operations are stable but conservative (extra retries can make operations slower)
 - frontend is functional and intentional, but still not a full desktop-equivalent UI

@@ -14,6 +14,7 @@
 - M1 regression now guards the disk picker wiring, supported extension filter, hidden-file filter, and absence of legacy filename probing.
 - PicoCalc Esc sends TRS BREAK; PicoCalc BRK (Shift+Esc) presses the TRS reset button.
 - SDL timing shim now uses Pico SDK ticks/delay, enabling real-time Z80 throttling.
+- Standard Model III game sound is active through the PicoCalc PWM audio driver; SCARFMAN has been verified after audio update throttling.
 - Latest M1 regression run: 20 passes, 0 failures.
 
 ---
@@ -46,10 +47,12 @@ Status: `in progress (high confidence beta)`
 - FAT32/stdio write-path hardening and retries for long write sessions.
 - Two-drive safety with `NDRIVES=2` and invalid-drive handling.
 - Real-time throttle path connected to Pico SDK timing.
+- Standard Model III cassette-port game sound routed to PicoCalc PWM audio with rate-limited hardware updates.
 
 ### Remaining
 - Longer soak testing (`FORMAT`/`BACKUP`/file churn loops).
 - On-device speed validation against Model III timing-sensitive games.
+- Broader game-audio compatibility sweep beyond SCARFMAN.
 - Optional reduction of compatibility patches where safe.
 - Finalize known-issue list with reproducible stress cases.
 

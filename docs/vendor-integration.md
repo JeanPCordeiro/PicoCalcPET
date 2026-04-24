@@ -352,6 +352,11 @@ Recommended choice:
 
 - defer cassette/audio until after ROM boot, screen, and keyboard are working
 
+Current firmware note:
+
+- standard Model III cassette-port game sound now uses a PicoCalc-specific PWM adapter in `firmware/frontend/trs_frontend_stub.c`
+- cassette data I/O remains excluded from the embedded build
+
 ## Build System Requirements
 
 The top-level build should:
@@ -404,7 +409,7 @@ Exclude:
 
 - disk controller
 - cassette
-- sound
+- sound for initial bring-up; standard Model III game sound is now implemented
 - printer
 - debugger UI
 - desktop SDL menus
