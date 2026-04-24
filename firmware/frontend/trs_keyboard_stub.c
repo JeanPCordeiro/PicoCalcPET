@@ -66,6 +66,9 @@
 #define TK_Left TK(6, 5)
 #define TK_Right TK(6, 6)
 #define TK_Space TK(6, 7)
+#define TK_F1 TK(7, 4)
+#define TK_F2 TK(7, 5)
+#define TK_F3 TK(7, 6)
 #define TK_LeftShift TK(7, 0)
 #define TK_RightShift TK(7, 1)
 
@@ -176,7 +179,7 @@ static key_table_t lookup_keysym(int keysym)
     case PLATFORM_KEY_RIGHT:
         return (key_table_t){TK_Right, TK_Neutral};
     case PLATFORM_KEY_TAB:
-        return (key_table_t){TK_Right, TK_Neutral};
+        return (key_table_t){TK_Clear, TK_Neutral};
     case PLATFORM_KEY_ESC:
         return (key_table_t){TK_Break, TK_Neutral};
     case PLATFORM_KEY_BREAK:
@@ -196,11 +199,11 @@ static key_table_t lookup_keysym(int keysym)
     case PLATFORM_KEY_PAGE_DOWN:
         return (key_table_t){TK_Down, TK_Neutral};
     case PLATFORM_KEY_F1:
-        return (key_table_t){TK_Break, TK_Neutral};
+        return (key_table_t){TK_F1, TK_Neutral};
     case PLATFORM_KEY_F2:
-        return (key_table_t){TK_Clear, TK_Neutral};
+        return (key_table_t){TK_F2, TK_Neutral};
     case PLATFORM_KEY_F3:
-        return (key_table_t){TK_LeftBracket, TK_ForceNoShift};
+        return (key_table_t){TK_F3, TK_Neutral};
     case PLATFORM_KEY_F4:
         return (key_table_t){TK_RightBracket, TK_ForceNoShift};
     default:
@@ -209,6 +212,7 @@ static key_table_t lookup_keysym(int keysym)
 
     switch (keysym & 0xffff) {
     case 0x08: return (key_table_t){TK_Left, TK_Neutral};
+    case 0x09: return (key_table_t){TK_Clear, TK_Neutral};
     case 0x0c: return (key_table_t){TK_Clear, TK_Neutral};
     case 0x0d: return (key_table_t){TK_Enter, TK_Neutral};
     case 0x1b: return (key_table_t){TK_Break, TK_Neutral};
