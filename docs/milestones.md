@@ -118,12 +118,13 @@ Move from "known apps work" to a small, repeatable game compatibility matrix, mo
 
 ## M5 - Video Fidelity Completion
 
-Status: `planned`
+Status: `in progress`
 
 ### Completed
 - TRS cursor rendering + firmware cursor suppression in TRS area.
 - TRS scrolling correctness fixes.
 - Color split (TRS text vs status area) and separator line.
+- Procedural 2x3 block rendering for Model III semigraphics characters `0x80`-`0xBF`.
 
 ### Remaining
 - Final verification of semigraphics edge cases across app set.

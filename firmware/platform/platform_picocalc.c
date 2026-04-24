@@ -117,6 +117,9 @@ static void picocalc_render_trs_cell(int col, int row, uint8_t ch, uint8_t mode)
     bool cursor = (mode & PLATFORM_CELL_CURSOR) != 0;
     bool underscore = (mode & PLATFORM_CELL_UNDERSCORE) != 0;
     int cell_width = PICOCALC_TRS_FONT_WIDTH;
+    int block_x_mid;
+    int block_y_mid;
+    int block_y_bottom;
     int x;
     int y;
     int src_row;
@@ -147,6 +150,39 @@ static void picocalc_render_trs_cell(int col, int row, uint8_t ch, uint8_t mode)
 
     if (expanded) {
         cell_width *= 2;
+    }
+
+    if ((mode & INVERSE) == 0 && glyph_code >= 0x80 && glyph_code <= 0xBF) {
+        uint8_t graphics_code = (uint8_t)(glyph_code - 0x80);
+
+        block_x_mid = cell_width / 2;
+        block_y_mid = trs80_model3_font_5x18.height / 3;
+        block_y_bottom = (trs80_model3_font_5x18.height * 2) / 3;
+
+        for (src_row = 0; src_row < trs80_model3_font_5x18.height; ++src_row) {
+            int block_row = (src_row < block_y_mid) ? 0 : (src_row < block_y_bottom) ? 1 : 2;
+            int dst_col;
+
+            for (dst_col = 0; dst_col < cell_width; ++dst_col) {
+                int block_col = (dst_col < block_x_mid) ? 0 : 1;
+                int block_bit = block_row * 2 + block_col;
+                uint16_t colour = (graphics_code & (1u << block_bit)) ? fg : bg;
+
+                if (underscore && src_row == (trs80_model3_font_5x18.height - 1)) {
+                    colour = fg;
+                }
+                if (cursor) {
+                    colour = (colour == fg) ? bg : fg;
+                }
+                *(pixel++) = colour;
+            }
+        }
+
+        x = col * PICOCALC_TRS_FONT_WIDTH;
+        y = row * PICOCALC_TRS_FONT_HEIGHT;
+        lcd_blit(picocalc_trs_cell_buffer, (uint16_t)x, (uint16_t)y, (uint16_t)cell_width,
+                 trs80_model3_font_5x18.height);
+        return;
     }
 
     glyph = &trs80_model3_font_5x18.glyphs[glyph_code * trs80_model3_font_5x18.height];

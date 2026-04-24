@@ -118,6 +118,11 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 
 ## Video/UI Cases
 
+1. Semigraphics:
+- Run a semigraphics-heavy game or visual test.
+- Expect Model III `0x80`-`0xBF` block graphics to render as 2x3 filled blocks.
+- Check normal and expanded text modes if available.
+
 1. Cursor visibility:
 - TRS cursor visible in expected contexts.
 - Firmware shell cursor not visible in TRS area.
