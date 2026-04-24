@@ -18,10 +18,19 @@ fail_count=0
 mkdir -p "${REPORT_DIR}"
 
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
+git_commit="$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+git_status="$(git -C "${REPO_ROOT}" status --short 2>/dev/null || true)"
 
 echo "PicoCalcTRS M1 Regression Report" > "${REPORT_FILE}"
 echo "Run ID: ${run_id}" >> "${REPORT_FILE}"
 echo "Repo: ${REPO_ROOT}" >> "${REPORT_FILE}"
+echo "Commit: ${git_commit}" >> "${REPORT_FILE}"
+if [[ -n "${git_status}" ]]; then
+    echo "Worktree: dirty" >> "${REPORT_FILE}"
+    echo "${git_status}" >> "${REPORT_FILE}"
+else
+    echo "Worktree: clean" >> "${REPORT_FILE}"
+fi
 echo >> "${REPORT_FILE}"
 
 check_pass() {
@@ -109,6 +118,7 @@ fi
 if [[ -f "${uf2_dist}" ]]; then
     uf2_size="$(wc -c < "${uf2_dist}")"
     uf2_sha="$(sha256sum "${uf2_dist}" | awk '{print $1}')"
+    echo "UF2 path: ${uf2_dist}" >> "${REPORT_FILE}"
     echo "UF2 size: ${uf2_size}" >> "${REPORT_FILE}"
     echo "UF2 sha256: ${uf2_sha}" >> "${REPORT_FILE}"
     if [[ "${uf2_size}" -gt 0 ]]; then
@@ -160,6 +170,13 @@ else
     check_fail "Startup disk picker wiring missing"
 fi
 
+if grep -q "Sorted .DSK .DMK .JV1 .JV3" "${REPO_ROOT}/firmware/main.c" &&
+   grep -q "\\[none\\] leave D%d empty" "${REPO_ROOT}/firmware/main.c"; then
+    check_pass "Disk picker exposes formats and none option"
+else
+    check_fail "Disk picker usability labels missing"
+fi
+
 if grep -q 'disk%d' "${REPO_ROOT}/firmware/main.c"; then
     check_fail "Legacy disk0/disk1 filename probing is still present"
 else
@@ -176,6 +193,15 @@ else
     check_fail "Disk picker filter guard failed"
 fi
 
+if grep -q "platform_status_set_operator_context" "${REPO_ROOT}/firmware/main.c" &&
+   grep -q "platform_status_refresh_operator" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "D0:%c" "${REPO_ROOT}/firmware/platform/platform_picocalc.c" &&
+   grep -q "PICOCALC_DISK_ACTIVITY_MS" "${REPO_ROOT}/firmware/platform/platform_picocalc.c"; then
+    check_pass "Operator panel and disk activity indicator are wired"
+else
+    check_fail "Operator panel/disk activity wiring missing"
+fi
+
 if grep -q "keycode == PLATFORM_KEY_BREAK" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
    grep -q "trs_reset(0)" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
    grep -q "user_interrupt" "${REPO_ROOT}/firmware/platform/platform_picocalc.c"; then
@@ -189,6 +215,22 @@ if grep -q "to_ms_since_boot(get_absolute_time())" "${REPO_ROOT}/firmware/compat
     check_pass "SDL timing shim uses Pico SDK time"
 else
     check_fail "SDL timing shim is not backed by Pico SDK time"
+fi
+
+if [[ -f "${REPO_ROOT}/docs/release-checklist.md" ]] &&
+   grep -q "Supported Surface" "${REPO_ROOT}/docs/release-checklist.md" &&
+   grep -q "UF2 sha256" "${REPO_ROOT}/docs/release-checklist.md"; then
+    check_pass "Release checklist exists with artifact metadata fields"
+else
+    check_fail "Release checklist missing required sections"
+fi
+
+if [[ -f "${REPO_ROOT}/docs/game-compatibility.md" ]] &&
+   grep -q "SCARFMAN" "${REPO_ROOT}/docs/game-compatibility.md" &&
+   grep -q "Likely area" "${REPO_ROOT}/docs/game-compatibility.md"; then
+    check_pass "Game compatibility matrix exists"
+else
+    check_fail "Game compatibility matrix missing"
 fi
 
 section "Optional Host Build"

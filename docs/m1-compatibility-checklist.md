@@ -12,6 +12,9 @@ or:
 ./scripts/build-pico-uf2.sh
 ```
 
+The regression report at `dist/regression/m1-report.txt` records the commit,
+worktree state, UF2 path, UF2 size, and UF2 SHA-256.
+
 Optional debug builds:
 
 ```bash
@@ -36,15 +39,17 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 
 2. `SD + ROM present` boot:
 - Expect ROM load from SD.
-- Expect status lines showing ROM and disk detection.
+- Expect operator panel row 1 to show machine, ROM source, PC, and audio state.
 
 3. `SD + selected boot disk` boot to DOS:
 - Expect DOS prompt path (`Date?`/`Time?` flow where applicable).
 - No loop with `Unknown error code`.
+- Expect operator panel row 2 to show selected D0/D1 image names and `rw`/`ro` state.
 
 4. `Disk picker` startup:
 - Expect D0 picker to list only `.DSK`, `.DMK`, `.JV1`, and `.JV3` images from `/TRS80/DISKS`.
 - Expect dot-prefixed files to be hidden.
+- Expect the picker to show accepted extensions, sorted image names, image count, and `[none]` choice.
 - Select an image for D0 and `none` for D1; expect only D0 to mount.
 - Select `none` for D0 and D1; expect ROM BASIC boot with no disk controller attached.
 
@@ -73,6 +78,7 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 - Select two disk images in the startup picker.
 - Access both drives from DOS commands.
 - Expect drive 0 and 1 usable.
+- Expect `D0:*` or `D1:*` to appear during recent disk access, then return to `D0:.` or `D1:.`.
 
 2. Invalid-drive safety:
 - Any access pattern selecting > drive 1 should fail safely (not-ready behavior), not crash or corrupt state.
@@ -107,6 +113,7 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 1. Game matrix:
 - Test a small set of timing-sensitive, keyboard-heavy, semigraphics-heavy, BASIC, and disk-boot games.
 - Record boot, keyboard, speed, video, audio, and disk behavior for each game.
+- Update [game-compatibility.md](/workspaces/PicoCalcTRS/docs/game-compatibility.md).
 - Treat cassette data I/O, printer behavior, and RTC/date-time behavior as out of scope.
 
 ## Video/UI Cases
@@ -123,12 +130,19 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 - status area text is cyan.
 - separator line visible between TRS and status areas.
 
+4. Operator panel:
+- Row 1 shows machine, speed, ROM source, PC, and audio state.
+- Row 2 shows D0/D1 image names, `rw`/`ro`, and `*`/`.` disk activity.
+- Row 3 shows controls by default.
+- Row 3 shows transient messages and returns to controls after a short delay.
+
 ## Result Recording
 
 Record results in a simple table per run:
 
 - `Date`
 - `UF2 SHA/size`
+- `Commit/worktree` from `dist/regression/m1-report.txt`
 - `ROM source` (`SD` or `embedded`)
 - `LDOS boot` (`pass/fail`)
 - `TRSDOS boot` (`pass/fail`)
@@ -137,5 +151,6 @@ Record results in a simple table per run:
 - `FORMAT :1` (`pass/fail`)
 - `BACKUP :0 :1` (`pass/fail`)
 - `SCARFMAN audio` (`pass/fail`)
+- `Operator panel` (`pass/fail`)
 - `Game matrix notes`
 - `Notes`

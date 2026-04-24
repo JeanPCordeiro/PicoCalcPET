@@ -15,7 +15,7 @@
 - PicoCalc Esc sends TRS BREAK; PicoCalc BRK (Shift+Esc) presses the TRS reset button.
 - SDL timing shim now uses Pico SDK ticks/delay, enabling real-time Z80 throttling.
 - Standard Model III game sound is active through the PicoCalc PWM audio driver; SCARFMAN has been verified after audio update throttling.
-- Latest M1 regression run: 20 passes, 0 failures.
+- Latest M1 regression run: 24 passes, 0 failures.
 
 Explicit non-goals for this firmware target:
 
@@ -72,28 +72,44 @@ Make daily use smoother without adding desktop-emulator complexity.
 
 ## M3 - Release Hardening
 
-Status: `planned`
+Status: `in progress`
 
 ### Goal
 Turn the current beta into a repeatable release process before taking riskier emulator changes.
 
-### Planned
-- Maintain a supported-feature list and known-issues list.
-- Keep cassette data I/O, printer support, and RTC/date-time emulation documented as out of scope.
-- Define a release checklist covering build, automated regression, selected on-device DOS tests, selected game tests, and UF2 artifact verification.
-- Record UF2 size/hash for release candidates.
+### Completed
+- Added [release-checklist.md](/workspaces/PicoCalcTRS/docs/release-checklist.md) with:
+  - supported feature list
+  - intentional non-goals
+  - known issues and limits
+  - build checks
+  - on-device smoke tests
+  - release record template
+- Regression reports now include commit, worktree state, UF2 path, UF2 size, and UF2 SHA-256.
+
+### Remaining
+- Keep supported features and known issues current as later milestones land.
+- Use the release checklist on an actual on-device release candidate.
 
 ---
 
 ## M4 - Game Compatibility Sweep
 
-Status: `planned`
+Status: `in progress`
 
 ### Goal
 Move from "known apps work" to a small, repeatable game compatibility matrix, mostly through observation before code changes.
 
-### Planned
-- Build a test list covering SCARFMAN, arcade/action titles, BASIC games, and disk-boot games.
+### Completed
+- Added [game-compatibility.md](/workspaces/PicoCalcTRS/docs/game-compatibility.md) with:
+  - result codes
+  - subsystem failure tags
+  - starter matrix rows
+  - test notes template
+  - low-risk testing rules
+
+### Remaining
+- Fill the matrix with on-device results for SCARFMAN, arcade/action titles, BASIC games, semigraphics-heavy games, and disk-boot games.
 - Track each game for boot, keyboard, speed, video, audio, and disk behavior.
 - Classify failures by likely subsystem before fixing: timing, keyboard, video, disk, audio, or media-specific.
 - Tune timing/input/audio only when failures are reproducible.
