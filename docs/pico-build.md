@@ -4,7 +4,7 @@
 
 This document describes how to configure and build the PicoCalc-targeted firmware path for the RP2350-based PicoCalc.
 
-The hardware build is separate from the default host scaffold build.
+The hardware build is separate from the default host build.
 
 ## Requirements
 
@@ -57,13 +57,13 @@ Important consequence:
 cmake --build build-pico -j2
 ```
 
-With the current scaffold, that build completes successfully and produces:
+With the current Pico target, that build completes successfully and produces:
 
-- `build-pico/firmware/picocalc_trs_scaffold.elf`
-- `build-pico/firmware/picocalc_trs_scaffold.bin`
-- `build-pico/firmware/picocalc_trs_scaffold.hex`
+- `build-pico/firmware/PicoCalcTRS.elf`
+- `build-pico/firmware/PicoCalcTRS.bin`
+- `build-pico/firmware/PicoCalcTRS.hex`
 
-To generate `build-pico/firmware/picocalc_trs_scaffold.uf2`, configure without `-DPICO_NO_PICOTOOL=1` and make sure `picotool` is available to the Pico SDK.
+To generate `build-pico/firmware/PicoCalcTRS.uf2`, configure without `-DPICO_NO_PICOTOOL=1` and make sure `picotool` is available to the Pico SDK.
 
 ## Reproducible UF2 Command
 
@@ -72,8 +72,8 @@ The repo now includes [build-pico-uf2.sh](/workspaces/PicoCalcTRS/scripts/build-
 - uses `PICO_SDK_PATH` or defaults to `$HOME/pico-sdk`
 - builds and installs a local `picotool` under `/tmp/picotool/install` if needed
 - configures the firmware with UF2 generation enabled
-- builds `build-pico-uf2/firmware/picocalc_trs_scaffold.uf2`
-- copies a stable flash artifact to [dist/picocalc_trs_scaffold.uf2](/workspaces/PicoCalcTRS/dist/picocalc_trs_scaffold.uf2)
+- builds `build-pico-uf2/firmware/PicoCalcTRS.uf2`
+- copies a stable flash artifact to [dist/PicoCalcTRS.uf2](/workspaces/PicoCalcTRS/dist/PicoCalcTRS.uf2)
 
 Usage:
 
@@ -94,11 +94,13 @@ Optional environment overrides:
 
 The Pico build path is now wired to:
 
+- build the firmware target as `PicoCalcTRS`
 - include Pico SDK through the vendored starter import file
 - switch the platform backend to `platform_picocalc.c`
 - compile selected `picocalc-text-starter` driver sources
 - compile selected `sdltrs` core sources
 - use the local frontend and compatibility layer
+- emit a flashable `PicoCalcTRS.uf2` through the helper script
 
 ## Included PicoCalc Starter Sources
 
@@ -140,16 +142,16 @@ In short:
 
 Details are documented in [vendor-patch-workflow.md](/workspaces/PicoCalcTRS/docs/vendor-patch-workflow.md).
 
-## ROM Placement
+## SD-Card Layout
 
 The firmware currently looks for a Model III ROM in this order:
 
 1. command-line argument, where available
 2. `PICOCALC_TRS_ROM`
-3. `roms/model3.rom`
-4. `roms/trs80m3.rom`
-5. `sdcard/roms/model3.rom`
-6. `/roms/model3.rom`
+3. `/TRS80/ROMS/model3.rom`
+4. `/TRS80/ROMS/trs80m3.rom`
+
+Disk images are auto-detected under `/TRS80/DISKS` as `disk0` and `disk1` with `.dsk`, `.dmk`, `.jv3`, or `.jv1` extensions. Uppercase extensions are also accepted.
 
 On PicoCalc, the existence checks are routed through the FAT32 layer.
 
@@ -160,7 +162,7 @@ On PicoCalc, the existence checks are routed through the FAT32 layer.
 3. run `./scripts/regression-m1.sh` for M1 automated regression gates and UF2 build
 4. or configure manually with `-DPICOCALC_PLATFORM=ON`
 5. flash the resulting image:
-   - preferred stable artifact: [dist/picocalc_trs_scaffold.uf2](/workspaces/PicoCalcTRS/dist/picocalc_trs_scaffold.uf2)
+   - preferred stable artifact: [dist/PicoCalcTRS.uf2](/workspaces/PicoCalcTRS/dist/PicoCalcTRS.uf2)
    - use `.uf2` if `picotool` is available and UF2 generation is enabled
    - otherwise use the generated `.elf` or `.hex` with your preferred flashing workflow
 
@@ -187,7 +189,7 @@ For on-device verification, use:
 
 ## Host Build Reminder
 
-The host scaffold build remains:
+The host build remains:
 
 ```bash
 cmake -S . -B build

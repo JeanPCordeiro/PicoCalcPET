@@ -91,8 +91,8 @@ else
 fi
 
 section "Artifacts"
-uf2_build="${BUILD_DIR}/firmware/picocalc_trs_scaffold.uf2"
-uf2_dist="${DIST_DIR}/picocalc_trs_scaffold.uf2"
+uf2_build="${BUILD_DIR}/firmware/PicoCalcTRS.uf2"
+uf2_dist="${DIST_DIR}/PicoCalcTRS.uf2"
 
 if [[ -f "${uf2_build}" ]]; then
     check_pass "Build UF2 exists (${uf2_build})"
@@ -139,6 +139,18 @@ if grep -q "^+#define NDRIVES 2" "${REPO_ROOT}/patches/sdltrs/0001-picocalc-trs_
     check_pass "Disk patch enforces NDRIVES=2"
 else
     check_fail "Disk patch does not show NDRIVES=2"
+fi
+
+if grep -q 'PICOCALC_TRS_ROM_DIR "/TRS80/ROMS"' "${REPO_ROOT}/firmware/main.c"; then
+    check_pass "Runtime ROM directory is /TRS80/ROMS"
+else
+    check_fail "Runtime ROM directory is not /TRS80/ROMS"
+fi
+
+if grep -q 'PICOCALC_TRS_DISK_DIR "/TRS80/DISKS"' "${REPO_ROOT}/firmware/main.c"; then
+    check_pass "Runtime disk directory is /TRS80/DISKS"
+else
+    check_fail "Runtime disk directory is not /TRS80/DISKS"
 fi
 
 section "Optional Host Build"

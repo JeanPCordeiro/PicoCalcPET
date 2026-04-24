@@ -21,11 +21,11 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 ## Test Assets
 
 - Model III ROM:
-  - `/roms/model3.rom` on SD, or embedded ROM fallback
+  - `/TRS80/ROMS/model3.rom` on SD, or embedded ROM fallback
 - Disk images:
-  - `/disks/disk0.dmk` (LDOS 5.3.1 media)
-  - `/disks/disk1.dmk` (optional second disk)
-  - alternate smoke: `TRSDOS13.DSK` as disk0
+  - `/TRS80/DISKS/disk0.dmk` (LDOS 5.3.1 media)
+  - `/TRS80/DISKS/disk1.dmk` (optional second disk)
+  - alternate smoke: copy `TRSDOS13.DSK` to `/TRS80/DISKS/disk0.DSK`
 
 ## Core Boot Cases
 

@@ -1,4 +1,4 @@
-message(STATUS "Entering firmware scaffold")
+message(STATUS "Entering PicoCalcTRS firmware")
 message(STATUS "Local firmware code lives under ${CMAKE_CURRENT_SOURCE_DIR}")
 message(STATUS "Vendor integration is documented under docs/")
 option(PICOCALC_ENABLE_FDC_DIAG "Enable on-device FDC diagnostic status tracing" OFF)
@@ -276,24 +276,24 @@ target_include_directories(picocalc_vendor_headers INTERFACE
     ${PICOCALC_STARTER_DRIVERS_DIR}
 )
 
-add_executable(picocalc_trs_scaffold
+add_executable(PicoCalcTRS
     main.c
 )
 
-target_include_directories(picocalc_trs_scaffold PRIVATE
+target_include_directories(PicoCalcTRS PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/compat
 )
 
-target_link_libraries(picocalc_trs_scaffold PRIVATE
+target_link_libraries(PicoCalcTRS PRIVATE
     sdltrs_core
     sdltrs_frontend_stubs
 )
 
 if(PICOCALC_PLATFORM)
-    pico_enable_stdio_usb(picocalc_trs_scaffold 0)
-    pico_enable_stdio_uart(picocalc_trs_scaffold 1)
-    pico_add_extra_outputs(picocalc_trs_scaffold)
+    pico_enable_stdio_usb(PicoCalcTRS 0)
+    pico_enable_stdio_uart(PicoCalcTRS 1)
+    pico_add_extra_outputs(PicoCalcTRS)
     if(PICO_NO_PICOTOOL)
         message(WARNING "PICO_NO_PICOTOOL=1 disables UF2 generation; the build will emit ELF/BIN/HEX outputs only.")
     endif()

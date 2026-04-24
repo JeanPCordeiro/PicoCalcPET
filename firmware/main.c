@@ -12,6 +12,9 @@
 
 extern const char *program_name;
 
+#define PICOCALC_TRS_ROM_DIR "/TRS80/ROMS"
+#define PICOCALC_TRS_DISK_DIR "/TRS80/DISKS"
+
 static void write_line_centered(int row, const char *text)
 {
     size_t len;
@@ -138,9 +141,9 @@ static void show_missing_rom_screen(void)
     platform_screen_configure(64, 16);
     write_line_centered(2, "TRS-80 Model III ROM Missing");
     write_line_centered(5, "Put the ROM at:");
-    write_line_centered(7, "/roms/model3.rom");
+    write_line_centered(7, PICOCALC_TRS_ROM_DIR "/model3.rom");
     write_line_centered(10, "Also accepted:");
-    write_line_centered(11, "roms/trs80m3.rom");
+    write_line_centered(11, PICOCALC_TRS_ROM_DIR "/trs80m3.rom");
     snprintf(detect, sizeof(detect), "SD detect: gpio=%d present=%d",
              platform_sd_detect_state(),
              platform_sd_card_present() ? 1 : 0);
@@ -156,10 +159,8 @@ static void show_missing_rom_screen(void)
 static bool select_model3_rom_path(int argc, char **argv)
 {
     static const char *candidate_paths[] = {
-        "roms/model3.rom",
-        "roms/trs80m3.rom",
-        "sdcard/roms/model3.rom",
-        "/roms/model3.rom"
+        PICOCALC_TRS_ROM_DIR "/model3.rom",
+        PICOCALC_TRS_ROM_DIR "/trs80m3.rom"
     };
     const char *env_path;
     size_t i;
@@ -205,7 +206,11 @@ static bool select_disk_path(int argc, char **argv, int drive,
         ".dsk",
         ".dmk",
         ".jv3",
-        ".jv1"
+        ".jv1",
+        ".DSK",
+        ".DMK",
+        ".JV3",
+        ".JV1"
     };
     const char *env_name;
     const char *env_path;
@@ -234,14 +239,7 @@ static bool select_disk_path(int argc, char **argv, int drive,
     }
 
     for (ext_index = 0; ext_index < (sizeof(extensions) / sizeof(extensions[0])); ++ext_index) {
-        snprintf(candidate, sizeof(candidate), "disks/disk%d%s", drive, extensions[ext_index]);
-        if (platform_file_exists(candidate)) {
-            strncpy(buffer, candidate, buffer_size - 1);
-            buffer[buffer_size - 1] = '\0';
-            return true;
-        }
-
-        snprintf(candidate, sizeof(candidate), "/disks/disk%d%s", drive, extensions[ext_index]);
+        snprintf(candidate, sizeof(candidate), PICOCALC_TRS_DISK_DIR "/disk%d%s", drive, extensions[ext_index]);
         if (platform_file_exists(candidate)) {
             strncpy(buffer, candidate, buffer_size - 1);
             buffer[buffer_size - 1] = '\0';
@@ -261,7 +259,7 @@ int main(int argc, char **argv)
     bool disk0_found;
     bool disk1_found;
 
-    program_name = "picocalc_trs_scaffold";
+    program_name = "PicoCalcTRS";
 
     trs_model = 3;
     trs_sdl_init();

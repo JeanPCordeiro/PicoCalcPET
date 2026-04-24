@@ -11,7 +11,7 @@
 #include "error.h"
 #include "picocalc_reset_policy.h"
 
-const char *program_name = "picocalc_trs_scaffold";
+const char *program_name = "PicoCalcTRS";
 volatile bool user_interrupt;
 
 int stringy;

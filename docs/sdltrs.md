@@ -26,7 +26,9 @@ As of the current PicoCalc firmware status:
 
 - core CPU/memory/io flow is integrated
 - Model III ROM boot path is integrated
+- runtime ROM lookup is provided by the PicoCalc platform layer under `/TRS80/ROMS`
 - disk controller path (`trs_disk.c`) is integrated via a maintained patch
+- runtime disk image lookup is provided by the PicoCalc platform layer under `/TRS80/DISKS`
 - memory sizing path (`trs_memory.c`) is integrated via a maintained patch
 - SDL desktop frontend files remain excluded
 

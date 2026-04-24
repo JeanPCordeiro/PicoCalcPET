@@ -21,7 +21,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(PICOCALC_TEXT_STARTER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/picocalc-text-starter")
 set(SDLTRS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/sdltrs")
 
-message(STATUS "Configuring PicoCalcTRS scaffold")
+message(STATUS "Configuring PicoCalcTRS")
 message(STATUS "picocalc-text-starter: ${PICOCALC_TEXT_STARTER_DIR}")
 message(STATUS "sdltrs: ${SDLTRS_DIR}")
 

@@ -29,9 +29,9 @@ The PicoCalc starter gives us the embedded platform pieces we need:
 
 The important constraint is that `sdltrs` is a desktop emulator built around SDL and host OS facilities. On the PicoCalc, we will need to separate the emulation core from the desktop-facing layers and replace those layers with PicoCalc drivers.
 
-## First Milestone
+## Original Bring-Up Target
 
-The first useful target is a minimal Model III bring-up:
+The first useful target was a minimal Model III bring-up:
 
 1. initialize PicoCalc hardware using the starter firmware
 2. load a Model III ROM image from SD card
@@ -40,7 +40,7 @@ The first useful target is a minimal Model III bring-up:
 5. translate PicoCalc keyboard input into the TRS-80 keyboard matrix
 6. boot to the ROM prompt
 
-That milestone avoids the riskiest peripherals at first:
+That milestone avoided the riskiest peripherals at first:
 
 - floppy controller
 - cassette
@@ -58,6 +58,20 @@ Current firmware status is beyond initial bring-up:
 - LDOS/TRSDOS/BASIC core workflows are working in current on-device tests.
 - Build helper emits a stable UF2 in `dist/`.
 - Release and debug build profiles are both supported.
+- The firmware artifact is `PicoCalcTRS.uf2`.
+- SD-card ROM lookup uses `/TRS80/ROMS`.
+- SD-card disk lookup uses `/TRS80/DISKS`.
+
+Expected SD-card layout:
+
+```text
+/TRS80/ROMS/model3.rom
+/TRS80/ROMS/trs80m3.rom
+/TRS80/DISKS/disk0.dsk
+/TRS80/DISKS/disk1.dsk
+```
+
+Disk images may also use `.dmk`, `.jv3`, or `.jv1`; uppercase extensions are accepted.
 
 ## Roadmap
 
@@ -69,7 +83,7 @@ The vendor setup instructions live in [docs/vendor-setup.md](/workspaces/PicoCal
 
 The Pico SDK build notes live in [docs/pico-build.md](/workspaces/PicoCalcTRS/docs/pico-build.md).
 
-The stable flash artifact produced by the helper script is [dist/picocalc_trs_scaffold.uf2](/workspaces/PicoCalcTRS/dist/picocalc_trs_scaffold.uf2).
+The stable flash artifact produced by the helper script is [dist/PicoCalcTRS.uf2](/workspaces/PicoCalcTRS/dist/PicoCalcTRS.uf2).
 
 Build profile toggles (helper script env vars):
 

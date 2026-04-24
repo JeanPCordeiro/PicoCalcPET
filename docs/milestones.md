@@ -6,7 +6,9 @@
 - Disk drives `:0` and `:1` are active.
 - DOS/BASIC write workflows are working in on-device tests.
 - `FORMAT` now completes (slowly, due conservative write retry policy).
-- Build path supports quiet release and optional diagnostics.
+- Firmware target/artifact is now named `PicoCalcTRS`.
+- Build path emits `dist/PicoCalcTRS.uf2` and supports quiet release plus optional diagnostics.
+- Runtime SD-card layout is `/TRS80/ROMS` for ROMs and `/TRS80/DISKS` for disks.
 
 ---
 
@@ -23,7 +25,7 @@ Make every firmware iteration repeatable and safe by combining:
 - [regression-m1.sh](/workspaces/PicoCalcTRS/scripts/regression-m1.sh)
 - [m1-compatibility-checklist.md](/workspaces/PicoCalcTRS/docs/m1-compatibility-checklist.md)
 - generated run report at `dist/regression/m1-report.txt`
-- stable UF2 copy in `dist/`
+- stable UF2 copy at `dist/PicoCalcTRS.uf2`
 
 ---
 
