@@ -195,6 +195,7 @@ fi
 
 if grep -q "platform_status_set_operator_context" "${REPO_ROOT}/firmware/main.c" &&
    grep -q "platform_status_refresh_operator" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "AUD:%s DSK:%s" "${REPO_ROOT}/firmware/platform/platform_picocalc.c" &&
    grep -q "D0:%c" "${REPO_ROOT}/firmware/platform/platform_picocalc.c" &&
    grep -q "PICOCALC_DISK_ACTIVITY_MS" "${REPO_ROOT}/firmware/platform/platform_picocalc.c"; then
     check_pass "Operator panel and disk activity indicator are wired"
@@ -235,7 +236,8 @@ fi
 
 if [[ -f "${REPO_ROOT}/docs/game-compatibility.md" ]] &&
    grep -q "SCARFMAN" "${REPO_ROOT}/docs/game-compatibility.md" &&
-   grep -q "Likely area" "${REPO_ROOT}/docs/game-compatibility.md"; then
+   grep -q "Likely area" "${REPO_ROOT}/docs/game-compatibility.md" &&
+   grep -q "Hardware Smoke Notes" "${REPO_ROOT}/docs/game-compatibility.md"; then
     check_pass "Game compatibility matrix exists"
 else
     check_fail "Game compatibility matrix missing"
@@ -264,6 +266,16 @@ if grep -q "PLATFORM_KEY_F4" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c
     check_pass "Optional disk SFX toggle is wired safely"
 else
     check_fail "Optional disk SFX toggle missing or unsafe"
+fi
+
+if grep -q "PLATFORM_KEY_F5" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "KEY_F5" "${REPO_ROOT}/firmware/platform/platform_picocalc.c" &&
+   grep -q "trs_audio_toggle_sound" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "Audio:off" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "F5=AUD F4=DSK" "${REPO_ROOT}/firmware/platform/platform_picocalc.c"; then
+    check_pass "Runtime audio mute toggle is wired"
+else
+    check_fail "Runtime audio mute toggle missing"
 fi
 
 section "Optional Host Build"

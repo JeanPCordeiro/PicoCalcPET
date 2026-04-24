@@ -26,6 +26,7 @@ Use one or more tags in the `Likely area` column:
 | Title | Type | Media | Boot | Keyboard | Speed | Video | Disk | Audio | Likely area | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | SCARFMAN | timing/action/audio | disk | pass | nt | pass | nt | nt | pass | audio | Verified no audio hang after PWM update throttling. |
+| DOS BACKUP workflow | disk utility | disk | pass | nt | partial | nt | pass | pass | disk/audio | `BACKUP :0 :1` hardware smoke passed; optional F4 disk clicks were audible and did not hang the workflow. |
 | Big Five action game | arcade/action | disk | nt | nt | nt | nt | nt | nt | unknown | Placeholder for Big Five-style action timing/video check. |
 | BASIC game | BASIC | BASIC/disk | nt | nt | nt | nt | nt | nt | unknown | Placeholder for keyboard and BASIC runtime behavior. |
 | Semigraphics-heavy game | video | disk | nt | nt | nt | nt | nt | nt | unknown | Placeholder for semigraphics fidelity check. |
@@ -57,3 +58,8 @@ Notes:
 - Use scratch disk images for write/format tests.
 - Classify failures before patching code.
 - Prefer small, reproducible fixes over broad emulator changes.
+
+## Hardware Smoke Notes
+
+- 2026-04-24: SCARFMAN runs without the previous audio hang after rate-limited PWM updates.
+- 2026-04-24: `BACKUP :0 :1` completed on user-tested media with optional F4 disk clicks enabled/audible.

@@ -20,6 +20,7 @@ Use this checklist for release candidates and tagged UF2 builds.
 - `FORMAT`/`BACKUP` compatibility paths, with conservative write retries.
 - Real-time Z80 throttle through Pico SDK timing.
 - Standard Model III cassette-port game sound through PicoCalc PWM audio.
+- F5 runtime audio mute toggle.
 - Optional F4 disk seek/access click effect, default off.
 - Three-row operator status panel with disk activity indicators.
 
@@ -59,7 +60,7 @@ RUN_HOST_BUILD=1 ./scripts/regression-m1.sh
 
 Expected result:
 
-- `28` passes.
+- `29` passes.
 - `0` failures.
 - `dist/PicoCalcTRS.uf2` exists and is non-empty.
 - `dist/regression/m1-report.txt` records commit, worktree state, UF2 path, UF2 size, and UF2 SHA-256.
@@ -73,7 +74,7 @@ Record ROM source, disk images, and pass/fail result for each item. Use `dist/re
 - Boot with D0 set to `none` and D1 set to `none`.
 - Boot DOS from D0.
 - Verify D0/D1 picker can attach images or leave either drive empty.
-- Verify operator panel row 1 shows machine, ROM source, PC, and audio state.
+- Verify operator panel row 1 shows machine, ROM source, PC, `AUD`, and `DSK` state.
 - Verify operator panel row 2 shows `D0:*` / `D0:.` activity during disk access.
 - Verify operator panel row 3 returns to controls after transient messages.
 - Press Esc and confirm TRS BREAK behavior.
@@ -83,6 +84,7 @@ Record ROM source, disk images, and pass/fail result for each item. Use `dist/re
 - Run `BACKUP :0 :1` far enough to confirm expected prompts/behavior. Hardware smoke passed on 2026-04-24 with user-tested media; still repeat for release candidate media.
 - Update [fdc-soak-checklist.md](/workspaces/PicoCalcTRS/docs/fdc-soak-checklist.md) with any disk-image or long-run results gathered during release testing.
 - Run SCARFMAN and confirm speed and audio do not hang.
+- Press F5 during SCARFMAN and confirm audio toggles off/on without hanging.
 - Press F4, perform disk reads/writes, and confirm optional disk clicks are audible without disturbing game audio.
 - Update [game-compatibility.md](/workspaces/PicoCalcTRS/docs/game-compatibility.md) with any game results gathered during release testing.
 - Update [video-fidelity-checklist.md](/workspaces/PicoCalcTRS/docs/video-fidelity-checklist.md) with any focused video results gathered during release testing.

@@ -109,6 +109,10 @@ static alarm_id_t trs_disk_sfx_alarm = -1;
 #define TRS_DISK_SFX_D0_HZ 720u
 #define TRS_DISK_SFX_D1_HZ 840u
 
+static void trs_audio_stop(void);
+
+#define TRS_DISK_SFX_STATUS (trs_disk_sfx_enabled != 0)
+
 static void trs_disk_sfx_cancel(void)
 {
     if (trs_disk_sfx_alarm >= 0) {
@@ -173,6 +177,19 @@ static void trs_disk_sfx_toggle(void)
         trs_disk_sfx_cancel();
     }
     platform_status_puts(trs_disk_sfx_enabled ? "DSK SFX:on" : "DSK SFX:off");
+    platform_status_refresh_operator((uint16_t)Z80_PC, z80_state.clockMHz,
+                                     trs_sound != 0, TRS_DISK_SFX_STATUS);
+}
+
+static void trs_audio_toggle_sound(void)
+{
+    trs_sound = !trs_sound;
+    if (!trs_sound) {
+        trs_audio_stop();
+    }
+    platform_status_puts(trs_sound ? "Audio:on" : "Audio:off");
+    platform_status_refresh_operator((uint16_t)Z80_PC, z80_state.clockMHz,
+                                     trs_sound != 0, TRS_DISK_SFX_STATUS);
 }
 
 static int64_t trs_audio_silence_callback(alarm_id_t id, void *user_data)
@@ -291,6 +308,8 @@ static void trs_audio_transition(int value)
     trs_audio_current_hz = hz;
     trs_audio_last_update_ms = now_ms;
 }
+#else
+#define TRS_DISK_SFX_STATUS false
 #endif
 #if PICOCALC_ENABLE_FDC_DIAG
 static Uint8 trs_diag_fdc_tag = '?';
@@ -377,7 +396,8 @@ static void trs_diag_publish(int force)
             return;
         }
     }
-    platform_status_refresh_operator((uint16_t)Z80_PC, z80_state.clockMHz, trs_sound != 0);
+    platform_status_refresh_operator((uint16_t)Z80_PC, z80_state.clockMHz,
+                                     trs_sound != 0, TRS_DISK_SFX_STATUS);
 #else
     char line0[80];
     char line1[80];
@@ -751,6 +771,10 @@ void trs_get_event(int wait)
             return;
         }
 #ifdef PICOCALC_PLATFORM
+        if (keycode == PLATFORM_KEY_F5) {
+            trs_audio_toggle_sound();
+            return;
+        }
         if (keycode == PLATFORM_KEY_F4) {
             trs_disk_sfx_toggle();
             return;

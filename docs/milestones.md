@@ -15,7 +15,7 @@
 - PicoCalc Esc sends TRS BREAK; PicoCalc BRK (Shift+Esc) presses the TRS reset button.
 - SDL timing shim now uses Pico SDK ticks/delay, enabling real-time Z80 throttling.
 - Standard Model III game sound is active through the PicoCalc PWM audio driver; SCARFMAN has been verified after audio update throttling.
-- Latest M1 regression run: 28 passes, 0 failures.
+- Latest M1 regression run: 29 passes, 0 failures.
 
 Explicit non-goals for this firmware target:
 
@@ -52,7 +52,7 @@ Make daily use smoother without adding desktop-emulator complexity.
 
 ### Completed
 - Redesign the 3 status rows into a compact operator panel:
-  - row 1: machine, speed, ROM source, PC, and audio state
+  - row 1: machine, speed, ROM source, PC, audio mute state, and disk SFX state
   - row 2: D0/D1 image names, read/write state, and disk access/motor activity indicator
   - row 3: controls by default, with transient messages for important events
 - Use ASCII disk activity glyphs in row 2:
@@ -165,6 +165,7 @@ Keep standard Model III game sound stable and pleasant without implementing cass
 
 ### Completed
 - Added a default-off `F4` runtime toggle for optional disk SFX.
+- Added an `F5` runtime audio mute toggle for game audio and disk SFX.
 - Added short non-blocking D0/D1 disk access clicks on disk LED activity.
 - Disk clicks are throttled and skipped while TRS game audio is active.
 - Hardware smoke confirmed disk clicks during `BACKUP :0 :1`.
@@ -179,5 +180,5 @@ Keep standard Model III game sound stable and pleasant without implementing cass
   - TRS game audio has priority
   - seek clicks may play only when safe or as a very short override
   - motor hum is lowest priority and must never block or override game audio
-- Add a mute control if it proves useful during game testing.
+- Validate the `F5` mute toggle across SCARFMAN and disk workflows.
 - If artifacts or hangs appear, move the PicoCalc PWM update path toward a non-blocking implementation.

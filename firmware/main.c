@@ -129,7 +129,8 @@ static void show_runtime_status(bool disk0_found, const char *disk0_path,
                                          disk0_found && trs_disk_getwriteprotect(0),
                                          disk1_path, disk1_found,
                                          disk1_found && trs_disk_getwriteprotect(1));
-    platform_status_refresh_operator((uint16_t)Z80_PC, z80_state.clockMHz, trs_sound != 0);
+    platform_status_refresh_operator((uint16_t)Z80_PC, z80_state.clockMHz,
+                                     trs_sound != 0, false);
 }
 
 static void show_missing_rom_screen(void)

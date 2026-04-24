@@ -64,6 +64,7 @@ static bool picocalc_operator_enabled;
 static uint16_t picocalc_operator_last_pc;
 static float picocalc_operator_last_clock_mhz;
 static bool picocalc_operator_last_audio_enabled;
+static bool picocalc_operator_last_disk_sfx_enabled;
 static char picocalc_operator_transient[65];
 static uint32_t picocalc_operator_transient_until_ms;
 
@@ -328,11 +329,12 @@ static void picocalc_render_operator_panel(void)
         ? (picocalc_operator_disks[1].write_protected ? "ro" : "rw")
         : "--";
 
-    snprintf(line0, sizeof(line0), "M3 %.2fMHz ROM:%s PC:%04X AUD:%s",
+    snprintf(line0, sizeof(line0), "M3 %.2fMHz ROM:%s PC:%04X AUD:%s DSK:%s",
              (double)picocalc_operator_last_clock_mhz,
              picocalc_operator_rom_source,
              (unsigned int)picocalc_operator_last_pc,
-             picocalc_operator_last_audio_enabled ? "on" : "off");
+             picocalc_operator_last_audio_enabled ? "on" : "off",
+             picocalc_operator_last_disk_sfx_enabled ? "on" : "off");
     snprintf(line1, sizeof(line1), "D0:%c %-18.18s %s   D1:%c %-18.18s %s",
              d0_active, d0_name, d0_mode,
              d1_active, d1_name, d1_mode);
@@ -347,7 +349,7 @@ static void picocalc_render_operator_panel(void)
             picocalc_write_operator_line(2, picocalc_operator_transient);
         } else {
             picocalc_operator_transient[0] = '\0';
-            picocalc_write_operator_line(2, "ESC=BREAK  BRK=RESET");
+            picocalc_write_operator_line(2, "ESC=BREAK BRK=RESET F5=AUD F4=DSK");
         }
     }
 }
@@ -459,6 +461,9 @@ bool platform_poll_key(int *keycode, bool wait)
         break;
     case KEY_F4:
         mapped = PLATFORM_KEY_F4;
+        break;
+    case KEY_F5:
+        mapped = PLATFORM_KEY_F5;
         break;
     default:
         mapped = ch;
@@ -610,7 +615,8 @@ void platform_status_set_operator_context(const char *rom_source, int rom_size,
     picocalc_render_operator_panel();
 }
 
-void platform_status_refresh_operator(uint16_t pc, float clock_mhz, bool audio_enabled)
+void platform_status_refresh_operator(uint16_t pc, float clock_mhz, bool audio_enabled,
+                                      bool disk_sfx_enabled)
 {
     if (!picocalc_operator_enabled) {
         return;
@@ -619,6 +625,7 @@ void platform_status_refresh_operator(uint16_t pc, float clock_mhz, bool audio_e
     picocalc_operator_last_pc = pc;
     picocalc_operator_last_clock_mhz = clock_mhz;
     picocalc_operator_last_audio_enabled = audio_enabled;
+    picocalc_operator_last_disk_sfx_enabled = disk_sfx_enabled;
     picocalc_render_operator_panel();
 }
 
