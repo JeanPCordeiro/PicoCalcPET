@@ -17,6 +17,12 @@
 - Standard Model III game sound is active through the PicoCalc PWM audio driver; SCARFMAN has been verified after audio update throttling.
 - Latest M1 regression run: 20 passes, 0 failures.
 
+Explicit non-goals for this firmware target:
+
+- cassette data I/O
+- printer support
+- RTC/date-time emulation
+
 ---
 
 ## M1 - Compatibility + Regression Harness
@@ -37,30 +43,62 @@ Make every firmware iteration repeatable and safe by combining:
 
 ---
 
-## M2 - FDC Fidelity Hardening
+## M2 - Usability Polish
 
-Status: `in progress (high confidence beta)`
+Status: `next priority`
 
-### Completed in M2
-- WRITEM compatibility path for DOS workflows.
-- DMK write-track compatibility relaxations needed by FORMAT/BACKUP flows.
-- FAT32/stdio write-path hardening and retries for long write sessions.
-- Two-drive safety with `NDRIVES=2` and invalid-drive handling.
-- Real-time throttle path connected to Pico SDK timing.
-- Standard Model III cassette-port game sound routed to PicoCalc PWM audio with rate-limited hardware updates.
+### Goal
+Make daily use smoother without adding desktop-emulator complexity.
 
-### Remaining
-- Longer soak testing (`FORMAT`/`BACKUP`/file churn loops).
-- On-device speed validation against Model III timing-sensitive games.
-- Broader game-audio compatibility sweep beyond SCARFMAN.
-- Optional reduction of compatibility patches where safe.
-- Finalize known-issue list with reproducible stress cases.
+### Planned
+- Redesign the 3 status rows into a compact operator panel:
+  - row 1: machine, speed, ROM source, PC, and audio state
+  - row 2: D0/D1 image names, read/write state, and disk access/motor activity indicator
+  - row 3: controls by default, with transient messages for important events
+- Use ASCII disk activity glyphs in row 2:
+  - `D0:*` / `D1:*` means active motor or recent disk access
+  - `D0:.` / `D1:.` means idle
+  - example: `D0:* LDOS.DMK rw   D1:. GAMES.DSK ro`
+- Keep diagnostic-only details behind existing debug build flags.
+- Improve startup disk picker behavior where needed, including sorting and clearer labels.
+- Improve ROM/disk load failure messages.
+- Add or refine concise on-device status/help text for paths and controls.
 
 ---
 
-## M3 - Video Fidelity Completion
+## M3 - Release Hardening
 
-Status: `partially complete`
+Status: `planned`
+
+### Goal
+Turn the current beta into a repeatable release process before taking riskier emulator changes.
+
+### Planned
+- Maintain a supported-feature list and known-issues list.
+- Keep cassette data I/O, printer support, and RTC/date-time emulation documented as out of scope.
+- Define a release checklist covering build, automated regression, selected on-device DOS tests, selected game tests, and UF2 artifact verification.
+- Record UF2 size/hash for release candidates.
+
+---
+
+## M4 - Game Compatibility Sweep
+
+Status: `planned`
+
+### Goal
+Move from "known apps work" to a small, repeatable game compatibility matrix, mostly through observation before code changes.
+
+### Planned
+- Build a test list covering SCARFMAN, arcade/action titles, BASIC games, and disk-boot games.
+- Track each game for boot, keyboard, speed, video, audio, and disk behavior.
+- Classify failures by likely subsystem before fixing: timing, keyboard, video, disk, audio, or media-specific.
+- Tune timing/input/audio only when failures are reproducible.
+
+---
+
+## M5 - Video Fidelity Completion
+
+Status: `planned`
 
 ### Completed
 - TRS cursor rendering + firmware cursor suppression in TRS area.
@@ -69,4 +107,47 @@ Status: `partially complete`
 
 ### Remaining
 - Final verification of semigraphics edge cases across app set.
-- Optional cleanup/refactor of frontend rendering internals.
+- Verify inverse, alternate charset, expanded text, cursor behavior, and scrolling under real software.
+- Fix visible compatibility bugs found during the sweep.
+
+---
+
+## M6 - FDC Fidelity Hardening
+
+Status: `planned`
+
+### Completed Foundation
+- WRITEM compatibility path for DOS workflows.
+- DMK write-track compatibility relaxations needed by FORMAT/BACKUP flows.
+- FAT32/stdio write-path hardening and retries for long write sessions.
+- Two-drive safety with `NDRIVES=2` and invalid-drive handling.
+- Real-time throttle path connected to Pico SDK timing.
+
+### Planned
+- Longer soak testing (`FORMAT`/`BACKUP`/file churn loops).
+- Test a small image matrix across LDOS, TRSDOS, `.DSK`, `.DMK`, `.JV1`, and `.JV3`.
+- Record known failures and whether they are disk-image specific.
+- Review the conservative write retry policy after soak results.
+- Optional reduction of compatibility patches where safe.
+
+---
+
+## M7 - Audio Polish
+
+Status: `planned`
+
+### Goal
+Keep standard Model III game sound stable and pleasant without implementing cassette data I/O.
+
+### Planned
+- Test more Model III sound games beyond SCARFMAN.
+- Add optional disk activity sound effects:
+  - short non-blocking seek/head-step clicks for RESTORE, SEEK, STEP, STEP IN, and STEP OUT activity
+  - optional low-priority motor hum while the emulated disk motor/access indicator is active
+  - a `DSK SFX:on/off` style toggle or equivalent build/runtime control
+- Keep audio priority explicit:
+  - TRS game audio has priority
+  - seek clicks may play only when safe or as a very short override
+  - motor hum is lowest priority and must never block or override game audio
+- Add a mute control if it proves useful during game testing.
+- If artifacts or hangs appear, move the PicoCalc PWM update path toward a non-blocking implementation.

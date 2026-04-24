@@ -120,13 +120,20 @@ This is intentionally narrower than the full upstream starter project.
 
 The Pico path is now functional for ROM + DOS/BASIC + two-drive workflows, but not feature-complete.
 
-Remaining limits:
+Intentional non-goals:
 
-- cassette data I/O and printer remain stubbed
+- cassette data I/O
+- printer support
+- RTC/date-time emulation
+
+Remaining enhancement areas:
+
 - Model III cassette-port game sound is implemented through PicoCalc PWM audio
-- no RTC emulation (DOS date/time prompts follow Model III behavior)
+- broader game and game-audio compatibility testing is still needed
+- optional disk activity sound effects are planned, with TRS game audio kept as the priority
+- video semigraphics and attribute edge cases need a wider app sweep
 - write-heavy disk operations are stable but conservative (extra retries can make operations slower)
-- frontend is functional and intentional, but still not a full desktop-equivalent UI
+- frontend is functional and intentional, but needs the planned 3-row operator-panel redesign, including `D0:*`/`D0:.` style disk access/motor activity, plus usability polish around status/help and failure messages
 
 ## Vendor Patch Adaptation
 

@@ -31,7 +31,7 @@ Owns TRS-80 state and execution:
 - video memory
 - keyboard matrix
 - interrupts and timing
-- floppy/cassette/printer state when added
+- floppy state
 
 This layer should be written so it does not depend on SDL, terminal escape codes, or desktop file dialogs.
 
@@ -176,13 +176,24 @@ Success criteria:
 
 ### Phase 7: Extras
 
-Optional after the machine is usable:
+Enhancements after the machine is usable:
 
+- redesign the 3 status rows as an operator panel for machine, disk images/access activity (`D0:*` active, `D0:.` idle), controls, and transient messages
+- release hardening with a known-issues list and repeatable on-device test matrix
+- broaden game compatibility testing across timing, keyboard, disk, video, and audio
+- finish video fidelity checks, especially semigraphics and attribute edge cases
+- continue FDC soak testing and disk-image compatibility checks
 - broader sound compatibility; standard Model III cassette-port game sound is already active
-- cassette
+- optional disk activity sound effects, including seek/head-step clicks and low-priority motor hum behind a toggle
+- startup disk picker and status/help polish
 - configuration UI
 - save states
-- serial/printer emulation
+
+Explicitly out of scope:
+
+- cassette data I/O
+- printer support
+- RTC/date-time emulation
 
 ## Key Design Decisions
 

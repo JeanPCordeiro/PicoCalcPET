@@ -102,6 +102,13 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 - Expect audible game sound from the PicoCalc audio output.
 - Expect no lockup during startup, gameplay, or rapid sound effects.
 
+## Compatibility Sweep Cases
+
+1. Game matrix:
+- Test a small set of timing-sensitive, keyboard-heavy, semigraphics-heavy, BASIC, and disk-boot games.
+- Record boot, keyboard, speed, video, audio, and disk behavior for each game.
+- Treat cassette data I/O, printer behavior, and RTC/date-time behavior as out of scope.
+
 ## Video/UI Cases
 
 1. Cursor visibility:
@@ -130,4 +137,5 @@ Record results in a simple table per run:
 - `FORMAT :1` (`pass/fail`)
 - `BACKUP :0 :1` (`pass/fail`)
 - `SCARFMAN audio` (`pass/fail`)
+- `Game matrix notes`
 - `Notes`

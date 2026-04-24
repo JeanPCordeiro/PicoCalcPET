@@ -82,6 +82,21 @@ Files whose names begin with `.` are hidden from the picker.
 
 ## Roadmap
 
+Current enhancement priorities:
+
+1. redesign the 3 status rows as a compact operator panel for machine, disk images/access activity (`D0:*` active, `D0:.` idle), controls, and transient messages
+2. harden release quality with a repeatable on-device test matrix and clear known-issues list
+3. expand the game compatibility sweep across timing, keyboard, video, disk, and audio behavior
+4. finish video fidelity checks, especially semigraphics and attribute edge cases
+5. continue FDC soak testing and disk-image compatibility checks
+6. broaden Model III game-audio testing, including optional disk seek/motor sound effects, and improve the audio path if more demanding games expose artifacts
+
+Explicitly out of scope for this firmware target:
+
+- cassette data I/O
+- printer support
+- RTC/date-time emulation
+
 The detailed porting plan lives in [docs/porting-plan.md](/workspaces/PicoCalcTRS/docs/porting-plan.md).
 
 The vendor integration specification lives in [docs/vendor-integration.md](/workspaces/PicoCalcTRS/docs/vendor-integration.md).

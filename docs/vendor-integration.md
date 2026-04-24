@@ -407,10 +407,10 @@ Include:
 
 Exclude:
 
-- disk controller
-- cassette
+- disk controller for initial bring-up; two-drive disk support is now implemented
+- cassette data I/O
 - sound for initial bring-up; standard Model III game sound is now implemented
-- printer
+- printer support
 - debugger UI
 - desktop SDL menus
 - joystick support

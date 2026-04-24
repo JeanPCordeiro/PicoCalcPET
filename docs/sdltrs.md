@@ -221,6 +221,7 @@ Current firmware note:
 
 - standard Model III cassette-port game sound is implemented in PicoCalc-owned frontend code, not by linking upstream `trs_cassette.c`
 - cassette data I/O remains stubbed
+- printer support and RTC/date-time emulation are intentional non-goals for this firmware target
 
 ## Build Notes For This Repository
 
