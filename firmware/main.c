@@ -252,7 +252,7 @@ static void draw_disk_picker(int drive, const platform_disk_image_t *images,
     int index;
 
     clear_screen_cells();
-    snprintf(line, sizeof(line), "Select disk image for D%d", drive);
+    snprintf(line, sizeof(line), "D%d Disk Image", drive);
     write_line_centered(1, line);
     write_line_centered(2, PICOCALC_TRS_DISK_DIR);
 
@@ -261,7 +261,11 @@ static void draw_disk_picker(int drive, const platform_disk_image_t *images,
                  platform_last_file_error());
         write_line(4, line);
     } else if (image_count == 0) {
-        write_line_centered(4, "No disk images found");
+        write_line_centered(4, "No disk images found; Enter selects none");
+    } else {
+        snprintf(line, sizeof(line), "%d image%s available",
+                 image_count, image_count == 1 ? "" : "s");
+        write_line_centered(4, line);
     }
 
     for (row = 0; row < PICOCALC_DISK_PICKER_VISIBLE_ROWS; ++row) {
@@ -271,17 +275,18 @@ static void draw_disk_picker(int drive, const platform_disk_image_t *images,
         }
 
         if (index == 0) {
-            snprintf(line, sizeof(line), "%c none",
-                     selected == index ? '>' : ' ');
+            snprintf(line, sizeof(line), "%c [none] leave D%d empty",
+                     selected == index ? '>' : ' ', drive);
         } else {
-            snprintf(line, sizeof(line), "%c %s",
+            snprintf(line, sizeof(line), "%c %-3d %s",
                      selected == index ? '>' : ' ',
+                     index,
                      images[index - 1].name);
         }
         write_line(5 + row, line);
     }
 
-    write_line_centered(14, "Up/Down choose  Enter attach  N none");
+    write_line_centered(14, "Up/Down choose  Enter attach  N none  Esc skip");
     platform_screen_flush();
 }
 
@@ -379,8 +384,18 @@ static void run_disk_picker(char *disk0_path, size_t disk0_path_size,
 
     *disk0_found = run_disk_picker_for_drive(0, images, image_count, list_error,
                                              disk0_path, disk0_path_size);
+    if (*disk0_found) {
+        status_printf("Boot: D0 selected %s", status_leaf_name(disk0_path));
+    } else {
+        platform_status_puts("Boot: D0 none");
+    }
     *disk1_found = run_disk_picker_for_drive(1, images, image_count, list_error,
                                              disk1_path, disk1_path_size);
+    if (*disk1_found) {
+        status_printf("Boot: D1 selected %s", status_leaf_name(disk1_path));
+    } else {
+        platform_status_puts("Boot: D1 none");
+    }
 }
 
 int main(int argc, char **argv)

@@ -64,8 +64,11 @@ static bool picocalc_operator_enabled;
 static uint16_t picocalc_operator_last_pc;
 static float picocalc_operator_last_clock_mhz;
 static bool picocalc_operator_last_audio_enabled;
+static char picocalc_operator_transient[65];
+static uint32_t picocalc_operator_transient_until_ms;
 
 #define PICOCALC_DISK_ACTIVITY_MS 250u
+#define PICOCALC_STATUS_TRANSIENT_MS 2500u
 
 static uint16_t picocalc_trs_foreground(void)
 {
@@ -303,7 +306,13 @@ static void picocalc_render_operator_panel(void)
         picocalc_write_operator_line(1, line1);
     }
     if (picocalc_status_rows > 2) {
-        picocalc_write_operator_line(2, "ESC=BREAK  BRK=RESET");
+        if (picocalc_operator_transient[0] != '\0' &&
+            now_ms < picocalc_operator_transient_until_ms) {
+            picocalc_write_operator_line(2, picocalc_operator_transient);
+        } else {
+            picocalc_operator_transient[0] = '\0';
+            picocalc_write_operator_line(2, "ESC=BREAK  BRK=RESET");
+        }
     }
 }
 
@@ -512,7 +521,11 @@ void platform_status_puts(const char *text)
     }
 
     if (picocalc_operator_enabled) {
-        picocalc_write_operator_line((picocalc_status_rows > 2) ? 2 : 0, text);
+        snprintf(picocalc_operator_transient, sizeof(picocalc_operator_transient),
+                 "%s", text);
+        picocalc_operator_transient_until_ms =
+            to_ms_since_boot(get_absolute_time()) + PICOCALC_STATUS_TRANSIENT_MS;
+        picocalc_render_operator_panel();
         return;
     }
 
@@ -556,6 +569,8 @@ void platform_status_set_operator_context(const char *rom_source, int rom_size,
                              sizeof(picocalc_operator_disks[1].name), disk1_path);
 
     picocalc_operator_enabled = true;
+    picocalc_operator_transient[0] = '\0';
+    picocalc_operator_transient_until_ms = 0;
     picocalc_render_operator_panel();
 }
 
