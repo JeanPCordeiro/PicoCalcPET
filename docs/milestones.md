@@ -45,12 +45,12 @@ Make every firmware iteration repeatable and safe by combining:
 
 ## M2 - Usability Polish
 
-Status: `next priority`
+Status: `in progress`
 
 ### Goal
 Make daily use smoother without adding desktop-emulator complexity.
 
-### Planned
+### Completed
 - Redesign the 3 status rows into a compact operator panel:
   - row 1: machine, speed, ROM source, PC, and audio state
   - row 2: D0/D1 image names, read/write state, and disk access/motor activity indicator
@@ -63,6 +63,10 @@ Make daily use smoother without adding desktop-emulator complexity.
 - Improve startup disk picker behavior where needed, including sorting and clearer labels.
 - Improve ROM/disk load failure messages.
 - Add or refine concise on-device status/help text for paths and controls.
+
+### Remaining
+- On-device validation of the operator panel during DOS boot, disk reads, disk writes, and no-disk BASIC boot.
+- Tune labels or truncation if real disk names are hard to scan on hardware.
 
 ---
 

@@ -136,22 +136,30 @@ static void show_missing_rom_screen(void)
 {
     char detail[65];
     char detect[65];
+    bool sd_present;
 
+    sd_present = platform_sd_card_present();
     platform_screen_configure(64, 16);
-    write_line_centered(2, "TRS-80 Model III ROM Missing");
-    write_line_centered(5, "Put the ROM at:");
-    write_line_centered(7, PICOCALC_TRS_ROM_DIR "/model3.rom");
-    write_line_centered(10, "Also accepted:");
-    write_line_centered(11, PICOCALC_TRS_ROM_DIR "/trs80m3.rom");
+    write_line_centered(1, "TRS-80 Model III ROM Missing");
+    if (sd_present) {
+        write_line_centered(4, "Copy one ROM file to SD:");
+        write_line_centered(6, PICOCALC_TRS_ROM_DIR "/model3.rom");
+        write_line_centered(8, "Also accepted:");
+        write_line_centered(9, PICOCALC_TRS_ROM_DIR "/trs80m3.rom");
+    } else {
+        write_line_centered(4, "Insert an SD card with:");
+        write_line_centered(6, PICOCALC_TRS_ROM_DIR "/model3.rom");
+        write_line_centered(8, "or rebuild with embedded ROM support.");
+    }
     snprintf(detect, sizeof(detect), "SD detect: gpio=%d present=%d",
              platform_sd_detect_state(),
-             platform_sd_card_present() ? 1 : 0);
-    snprintf(detail, sizeof(detail), "Probe: %s (%d)",
+             sd_present ? 1 : 0);
+    snprintf(detail, sizeof(detail), "Last probe: %s (%d)",
              platform_last_file_error(),
              platform_last_file_error_code());
     write_line(12, detect);
     write_line(13, detail);
-    write_line_centered(15, "Power cycle after copying.");
+    write_line_centered(15, "Power cycle after fixing ROM.");
     platform_screen_flush();
 }
 
@@ -255,9 +263,10 @@ static void draw_disk_picker(int drive, const platform_disk_image_t *images,
     snprintf(line, sizeof(line), "D%d Disk Image", drive);
     write_line_centered(1, line);
     write_line_centered(2, PICOCALC_TRS_DISK_DIR);
+    write_line_centered(3, "Sorted .DSK .DMK .JV1 .JV3");
 
     if (list_error) {
-        snprintf(line, sizeof(line), "Directory unavailable: %s",
+        snprintf(line, sizeof(line), "Directory unavailable: %.40s",
                  platform_last_file_error());
         write_line(4, line);
     } else if (image_count == 0) {
@@ -287,6 +296,7 @@ static void draw_disk_picker(int drive, const platform_disk_image_t *images,
     }
 
     write_line_centered(14, "Up/Down choose  Enter attach  N none  Esc skip");
+    write_line_centered(15, "Home/End and PgUp/PgDn move faster");
     platform_screen_flush();
 }
 
