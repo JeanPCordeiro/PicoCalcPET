@@ -77,6 +77,17 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 2. Invalid-drive safety:
 - Any access pattern selecting > drive 1 should fail safely (not-ready behavior), not crash or corrupt state.
 
+## Keyboard Control Cases
+
+1. TRS BREAK:
+- Press PicoCalc Esc.
+- Expect the guest to receive TRS BREAK, not firmware reset.
+
+2. TRS reset:
+- Press PicoCalc BRK (Shift+Esc).
+- Expect the guest to behave as if the TRS reset button was pressed.
+- Mounted disk selections should remain attached.
+
 ## Video/UI Cases
 
 1. Cursor visibility:

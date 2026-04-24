@@ -6,6 +6,7 @@
 #include "trs.h"
 #include "trs_keyboard_internal.h"
 #include "platform/platform.h"
+#include "emu/picocalc_reset_policy.h"
 
 #ifndef PICOCALC_ENABLE_FDC_DIAG
 #define PICOCALC_ENABLE_FDC_DIAG 0
@@ -93,6 +94,15 @@ static unsigned long trs_diag_fdc_notrdy_count;
 static unsigned long trs_diag_fdc_event_seq;
 static unsigned long trs_diag_fdc_last_render_seq;
 #endif
+
+static void picocalc_press_trs_reset_button(void)
+{
+    platform_status_puts("BRK: TRS reset");
+    clear_key_queue();
+    trs_kb_reset();
+    trs_reset(0);
+    picocalc_apply_post_reset_policy();
+}
 
 static void trs_fill_screen(Uint8 ch)
 {
@@ -508,6 +518,10 @@ void trs_get_event(int wait)
     int keycode;
 
     if (platform_poll_key(&keycode, wait)) {
+        if (keycode == PLATFORM_KEY_BREAK) {
+            picocalc_press_trs_reset_button();
+            return;
+        }
         trs_key_event(keycode);
     }
 }

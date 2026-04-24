@@ -21,6 +21,8 @@
 #include "drivers/font.h"
 #include "drivers/sdcard.h"
 
+extern volatile bool user_interrupt;
+
 typedef struct {
     uint8_t width;
     uint8_t height;
@@ -216,14 +218,30 @@ bool platform_poll_key(int *keycode, bool wait)
     int ch;
     int mapped = PLATFORM_KEY_NONE;
 
-    if (wait) {
-        ch = keyboard_get_key();
-    } else {
-        if (!keyboard_key_available()) {
-            return false;
+    if (user_interrupt) {
+        user_interrupt = false;
+        if (keycode != NULL) {
+            *keycode = PLATFORM_KEY_BREAK;
         }
-        ch = keyboard_get_key();
+        return true;
     }
+
+    if (wait) {
+        while (!keyboard_key_available()) {
+            if (user_interrupt) {
+                user_interrupt = false;
+                if (keycode != NULL) {
+                    *keycode = PLATFORM_KEY_BREAK;
+                }
+                return true;
+            }
+            tight_loop_contents();
+        }
+    } else if (!keyboard_key_available()) {
+        return false;
+    }
+
+    ch = keyboard_get_key();
 
     switch (ch) {
     case KEY_UP:

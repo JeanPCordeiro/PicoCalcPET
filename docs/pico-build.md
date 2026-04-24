@@ -159,6 +159,11 @@ There is no automatic `disk0.*`/`disk1.*` filename convention. Any visible suppo
 
 On PicoCalc, the existence checks are routed through the FAT32 layer.
 
+Keyboard control mapping:
+
+- PicoCalc Esc sends TRS BREAK.
+- PicoCalc BRK (Shift+Esc) presses the TRS reset button.
+
 ## Suggested Workflow
 
 1. initialize submodules
@@ -187,6 +192,7 @@ What it checks:
 - runtime ROM/disk directory guards
 - disk picker wiring and filter guards
 - guard against legacy `disk0.*`/`disk1.*` filename probing
+- keyboard control mapping guard for PicoCalc BRK as TRS reset
 - optional host build (`RUN_HOST_BUILD=1`)
 
 For on-device verification, use:

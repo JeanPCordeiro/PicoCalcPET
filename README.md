@@ -64,6 +64,7 @@ Current firmware status is beyond initial bring-up:
 - Startup includes a disk file picker for attaching images to D0 and D1, including `none`.
 - Disk image filenames are not special-cased; the picker attaches whichever listed image the user selects.
 - Regression guards ensure the old `disk0.*`/`disk1.*` filename probing does not return.
+- PicoCalc Esc maps to TRS BREAK; PicoCalc BRK (Shift+Esc) maps to the TRS reset button.
 
 Expected SD-card layout:
 

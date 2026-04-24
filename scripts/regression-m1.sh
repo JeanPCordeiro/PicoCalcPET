@@ -176,6 +176,14 @@ else
     check_fail "Disk picker filter guard failed"
 fi
 
+if grep -q "keycode == PLATFORM_KEY_BREAK" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "trs_reset(0)" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "user_interrupt" "${REPO_ROOT}/firmware/platform/platform_picocalc.c"; then
+    check_pass "PicoCalc BRK maps to TRS reset button"
+else
+    check_fail "PicoCalc BRK reset mapping missing"
+fi
+
 section "Optional Host Build"
 if [[ "${RUN_HOST_BUILD}" == "1" ]]; then
     host_build_dir="${REPO_ROOT}/build-m1-host"

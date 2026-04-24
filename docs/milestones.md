@@ -12,6 +12,7 @@
 - Startup disk picker attaches images to D0/D1 or leaves either drive as `none`.
 - Disk filenames are picker-selected; there is no automatic `disk0.*`/`disk1.*` filename convention.
 - M1 regression now guards the disk picker wiring, supported extension filter, hidden-file filter, and absence of legacy filename probing.
+- PicoCalc Esc sends TRS BREAK; PicoCalc BRK (Shift+Esc) presses the TRS reset button.
 
 ---
 
