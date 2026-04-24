@@ -65,6 +65,8 @@ Current firmware status is beyond initial bring-up:
 - Disk image filenames are not special-cased; the picker attaches whichever listed image the user selects.
 - Regression guards ensure the old `disk0.*`/`disk1.*` filename probing does not return.
 - PicoCalc Esc maps to TRS BREAK; PicoCalc BRK (Shift+Esc) maps to the TRS reset button.
+- The SDL timing shim uses Pico SDK time so the Z80 throttle path can target real Model III speed.
+- Current M1 regression status: 20 automated checks passing, 0 failing.
 
 Expected SD-card layout:
 

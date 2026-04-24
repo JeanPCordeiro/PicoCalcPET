@@ -184,6 +184,13 @@ else
     check_fail "PicoCalc BRK reset mapping missing"
 fi
 
+if grep -q "to_ms_since_boot(get_absolute_time())" "${REPO_ROOT}/firmware/compat/sdl_compat.c" &&
+   grep -q "sleep_ms(ms)" "${REPO_ROOT}/firmware/compat/sdl_compat.c"; then
+    check_pass "SDL timing shim uses Pico SDK time"
+else
+    check_fail "SDL timing shim is not backed by Pico SDK time"
+fi
+
 section "Optional Host Build"
 if [[ "${RUN_HOST_BUILD}" == "1" ]]; then
     host_build_dir="${REPO_ROOT}/build-m1-host"

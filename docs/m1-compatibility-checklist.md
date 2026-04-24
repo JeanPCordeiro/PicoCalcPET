@@ -88,6 +88,12 @@ PICOCALC_ENABLE_FDC_DIAG=ON PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-p
 - Expect the guest to behave as if the TRS reset button was pressed.
 - Mounted disk selections should remain attached.
 
+## Speed Cases
+
+1. Timing-sensitive game:
+- Run a game such as SCARFMAN.
+- Expect gameplay speed to be close to a real Model III, not RP2350 flat-out speed.
+
 ## Video/UI Cases
 
 1. Cursor visibility:

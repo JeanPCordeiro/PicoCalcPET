@@ -13,6 +13,8 @@
 - Disk filenames are picker-selected; there is no automatic `disk0.*`/`disk1.*` filename convention.
 - M1 regression now guards the disk picker wiring, supported extension filter, hidden-file filter, and absence of legacy filename probing.
 - PicoCalc Esc sends TRS BREAK; PicoCalc BRK (Shift+Esc) presses the TRS reset button.
+- SDL timing shim now uses Pico SDK ticks/delay, enabling real-time Z80 throttling.
+- Latest M1 regression run: 20 passes, 0 failures.
 
 ---
 
@@ -30,7 +32,7 @@ Make every firmware iteration repeatable and safe by combining:
 - [m1-compatibility-checklist.md](/workspaces/PicoCalcTRS/docs/m1-compatibility-checklist.md)
 - generated run report at `dist/regression/m1-report.txt`
 - stable UF2 copy at `dist/PicoCalcTRS.uf2`
-- guards for runtime ROM/disk directories and disk picker policy
+- guards for runtime ROM/disk directories, disk picker policy, BRK reset mapping, and Pico SDK-backed timing
 
 ---
 
@@ -43,9 +45,11 @@ Status: `in progress (high confidence beta)`
 - DMK write-track compatibility relaxations needed by FORMAT/BACKUP flows.
 - FAT32/stdio write-path hardening and retries for long write sessions.
 - Two-drive safety with `NDRIVES=2` and invalid-drive handling.
+- Real-time throttle path connected to Pico SDK timing.
 
 ### Remaining
 - Longer soak testing (`FORMAT`/`BACKUP`/file churn loops).
+- On-device speed validation against Model III timing-sensitive games.
 - Optional reduction of compatibility patches where safe.
 - Finalize known-issue list with reproducible stress cases.
 

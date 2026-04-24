@@ -164,6 +164,11 @@ Keyboard control mapping:
 - PicoCalc Esc sends TRS BREAK.
 - PicoCalc BRK (Shift+Esc) presses the TRS reset button.
 
+Runtime speed control:
+
+- The sdltrs Z80 loop uses Model III t-state accounting and calls `trs_timer_sync_with_host()`.
+- The PicoCalc SDL compatibility shim maps `SDL_GetTicks()` and `SDL_Delay()` to Pico SDK time functions, so that throttle path can sleep against real wall-clock time.
+
 ## Suggested Workflow
 
 1. initialize submodules
@@ -193,6 +198,7 @@ What it checks:
 - disk picker wiring and filter guards
 - guard against legacy `disk0.*`/`disk1.*` filename probing
 - keyboard control mapping guard for PicoCalc BRK as TRS reset
+- SDL timing shim guard for Pico SDK-backed ticks/delay
 - optional host build (`RUN_HOST_BUILD=1`)
 
 For on-device verification, use:
