@@ -89,7 +89,7 @@ Current enhancement priorities:
 3. expand the game compatibility sweep across timing, keyboard, video, disk, and audio behavior
 4. finish video fidelity checks, especially semigraphics and attribute edge cases
 5. continue FDC soak testing and disk-image compatibility checks
-6. broaden Model III game-audio testing, validate the F5 audio mute and optional F4 disk seek/access click effect, and improve the audio path if more demanding games expose artifacts
+6. broaden Model III game-audio testing, validate the F5 audio mute and optional F4 disk motor/step effect, and improve the audio path if more demanding games expose artifacts
 
 Explicitly out of scope for this firmware target:
 

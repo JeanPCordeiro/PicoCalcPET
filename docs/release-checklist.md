@@ -21,7 +21,8 @@ Use this checklist for release candidates and tagged UF2 builds.
 - Real-time Z80 throttle through Pico SDK timing.
 - Standard Model III cassette-port game sound through PicoCalc PWM audio.
 - F5 runtime audio mute toggle.
-- Optional F4 disk seek/access click effect, default off.
+- Optional F4 disk motor/step sound effect, default off.
+- Disk SFX samples generated from `firmware/assets/sounds_spin.pcm` and `firmware/assets/sounds_track.pcm`.
 - Three-row operator status panel with disk activity indicators.
 
 ## Intentional Non-Goals
@@ -41,7 +42,7 @@ Use this checklist for release candidates and tagged UF2 builds.
 - Inverse, alternate charset, expanded text, cursor, and scrolling edge cases need broader app/game validation.
 - Game compatibility matrix is not complete.
 - Game audio is verified with SCARFMAN, but needs broader testing.
-- Optional disk seek/access clicks are implemented behind F4, but still need on-device tuning; motor hum remains planned.
+- Optional disk motor/step SFX is implemented behind F4, but still needs on-device tuning.
 - The operator status panel still needs on-device validation across no-disk boot, DOS boot, reads, and writes.
 
 ## Required Build Checks
@@ -85,7 +86,7 @@ Record ROM source, disk images, and pass/fail result for each item. Use `dist/re
 - Update [fdc-soak-checklist.md](/workspaces/PicoCalcTRS/docs/fdc-soak-checklist.md) with any disk-image or long-run results gathered during release testing.
 - Run SCARFMAN and confirm speed and audio do not hang.
 - Press F5 during SCARFMAN and confirm audio toggles off/on without hanging.
-- Press F4, perform disk reads/writes, and confirm optional disk clicks are audible without disturbing game audio.
+- Press F4, perform disk reads/writes, and confirm optional disk motor/step SFX is audible without disturbing game audio.
 - Update [game-compatibility.md](/workspaces/PicoCalcTRS/docs/game-compatibility.md) with any game results gathered during release testing.
 - Update [video-fidelity-checklist.md](/workspaces/PicoCalcTRS/docs/video-fidelity-checklist.md) with any focused video results gathered during release testing.
 

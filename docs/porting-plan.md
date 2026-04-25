@@ -184,7 +184,7 @@ Enhancements after the machine is usable:
 - finish video fidelity checks, especially semigraphics and attribute edge cases
 - continue FDC soak testing and disk-image compatibility checks
 - broader sound compatibility; standard Model III cassette-port game sound is already active
-- optional disk activity sound effects, including seek/head-step clicks and low-priority motor hum behind a toggle
+- optional disk activity sound effects, including access/step pulses and low-priority motor hum behind a toggle
 - startup disk picker and status/help polish
 - configuration UI
 - save states

@@ -166,19 +166,20 @@ Keep standard Model III game sound stable and pleasant without implementing cass
 ### Completed
 - Added a default-off `F4` runtime toggle for optional disk SFX.
 - Added an `F5` runtime audio mute toggle for game audio and disk SFX.
-- Added short non-blocking D0/D1 disk access clicks on disk LED activity.
-- Disk clicks are throttled and skipped while TRS game audio is active.
-- Hardware smoke confirmed disk clicks during `BACKUP :0 :1`.
+- Replaced one-shot disk clicks with a non-blocking motor hum plus short access/step pulses on disk LED activity.
+- Added PCM-backed disk SFX generated from uploaded `sounds_spin.pcm` and `sounds_track.pcm`.
+- Disk motor/step SFX is throttled and skipped while TRS game audio is active.
+- Hardware smoke confirmed disk SFX during `BACKUP :0 :1`.
 
 ### Planned
 - Test more Model III sound games beyond SCARFMAN.
 - Validate optional disk activity sound effects on hardware:
-  - short non-blocking seek/head-step clicks during disk access
-  - optional low-priority motor hum while the emulated disk motor/access indicator is active
+  - low-priority motor hum while the emulated disk motor/access indicator is active
+  - short non-blocking access/step pulses during disk activity
   - tune or disable the effect if it distracts from game audio or DOS workflows
 - Keep audio priority explicit:
   - TRS game audio has priority
-  - seek clicks may play only when safe or as a very short override
+  - disk activity pulses may play only when safe or as a very short override
   - motor hum is lowest priority and must never block or override game audio
 - Validate the `F5` mute toggle across SCARFMAN and disk workflows.
 - If artifacts or hangs appear, move the PicoCalc PWM update path toward a non-blocking implementation.

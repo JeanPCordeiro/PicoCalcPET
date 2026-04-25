@@ -12,6 +12,8 @@
 #ifdef PICOCALC_PLATFORM
 #include "pico/time.h"
 #include "drivers/audio.h"
+#include "audio/sample_audio.h"
+#include "disk_sfx_assets.h"
 #endif
 
 #ifndef PICOCALC_ENABLE_FDC_DIAG
@@ -95,8 +97,10 @@ static uint32_t trs_audio_last_activity_ms;
 static uint32_t trs_audio_last_update_ms;
 static alarm_id_t trs_audio_silence_alarm = -1;
 static int trs_disk_sfx_enabled;
-static int trs_disk_sfx_active;
-static uint32_t trs_disk_sfx_last_ms;
+static int trs_disk_sfx_mode;
+static uint32_t trs_disk_sfx_active_until_ms;
+static uint32_t trs_disk_sfx_last_pulse_ms;
+static int trs_disk_sfx_last_drive = -1;
 static alarm_id_t trs_disk_sfx_alarm = -1;
 
 #define TRS_AUDIO_MIN_HZ 100u
@@ -104,12 +108,17 @@ static alarm_id_t trs_disk_sfx_alarm = -1;
 #define TRS_AUDIO_IDLE_MS 35
 #define TRS_AUDIO_UPDATE_MS 8
 #define TRS_AUDIO_HZ_DEADBAND 8u
-#define TRS_DISK_SFX_CLICK_MS 12
-#define TRS_DISK_SFX_MIN_INTERVAL_MS 45
-#define TRS_DISK_SFX_D0_HZ 720u
-#define TRS_DISK_SFX_D1_HZ 840u
+#define TRS_DISK_SFX_IDLE_MS 650u
+#define TRS_DISK_SFX_MIN_PULSE_MS 160u
+
+enum {
+    TRS_DISK_SFX_IDLE = 0,
+    TRS_DISK_SFX_MOTOR,
+    TRS_DISK_SFX_PULSE
+};
 
 static void trs_audio_stop(void);
+static int64_t trs_disk_sfx_stop_callback(alarm_id_t id, void *user_data);
 
 #define TRS_DISK_SFX_STATUS (trs_disk_sfx_enabled != 0)
 
@@ -119,55 +128,107 @@ static void trs_disk_sfx_cancel(void)
         cancel_alarm(trs_disk_sfx_alarm);
         trs_disk_sfx_alarm = -1;
     }
-    if (trs_disk_sfx_active) {
-        audio_stop();
-        trs_disk_sfx_active = 0;
+    if (trs_disk_sfx_mode != TRS_DISK_SFX_IDLE) {
+        picocalc_sample_audio_stop();
+        trs_disk_sfx_mode = TRS_DISK_SFX_IDLE;
     }
+}
+
+static void trs_disk_sfx_schedule_alarm(uint32_t delay_ms)
+{
+    if (trs_disk_sfx_alarm >= 0) {
+        cancel_alarm(trs_disk_sfx_alarm);
+        trs_disk_sfx_alarm = -1;
+    }
+
+    trs_disk_sfx_alarm = add_alarm_in_ms((int32_t)delay_ms,
+                                         trs_disk_sfx_stop_callback,
+                                         NULL, false);
+    if (trs_disk_sfx_alarm < 0) {
+        trs_disk_sfx_cancel();
+    }
+}
+
+static uint32_t trs_disk_sfx_track_ms(void)
+{
+    return (uint32_t)((picocalc_disk_sfx_track_len * 1000u) /
+                      PICOCALC_DISK_SFX_SAMPLE_RATE);
+}
+
+static void trs_disk_sfx_start_motor(int drive, uint32_t now_ms)
+{
+    uint32_t delay_ms = trs_disk_sfx_active_until_ms - now_ms;
+
+    (void)drive;
+    picocalc_sample_audio_play(picocalc_disk_sfx_spin,
+                               picocalc_disk_sfx_spin_len,
+                               PICOCALC_DISK_SFX_SAMPLE_RATE, true);
+    trs_disk_sfx_mode = TRS_DISK_SFX_MOTOR;
+    trs_disk_sfx_schedule_alarm(delay_ms > 0 ? delay_ms : 1);
 }
 
 static int64_t trs_disk_sfx_stop_callback(alarm_id_t id, void *user_data)
 {
+    uint32_t now_ms;
+    uint32_t delay_ms;
+
     (void)user_data;
     if (trs_disk_sfx_alarm != id) {
         return 0;
     }
 
-    if (trs_disk_sfx_active) {
-        audio_stop();
-        trs_disk_sfx_active = 0;
-    }
     trs_disk_sfx_alarm = -1;
+    now_ms = to_ms_since_boot(get_absolute_time());
+    if (trs_disk_sfx_mode == TRS_DISK_SFX_PULSE &&
+        now_ms < trs_disk_sfx_active_until_ms) {
+        trs_disk_sfx_start_motor(trs_disk_sfx_last_drive, now_ms);
+        return 0;
+    }
+
+    if (trs_disk_sfx_mode == TRS_DISK_SFX_MOTOR &&
+        now_ms < trs_disk_sfx_active_until_ms) {
+        delay_ms = trs_disk_sfx_active_until_ms - now_ms;
+        trs_disk_sfx_schedule_alarm(delay_ms > 0 ? delay_ms : 1);
+        return 0;
+    }
+
+    if (trs_disk_sfx_mode != TRS_DISK_SFX_IDLE) {
+        audio_stop();
+        trs_disk_sfx_mode = TRS_DISK_SFX_IDLE;
+    }
     return 0;
 }
 
-static void trs_disk_sfx_click(int drive)
+static void trs_disk_sfx_activity(int drive)
 {
     uint32_t now_ms;
-    uint32_t hz;
+    uint32_t track_ms;
 
     if (!trs_sound || !trs_disk_sfx_enabled || drive < 0 || drive > 1) {
         return;
     }
-    if (trs_audio_current_hz != 0 || audio_is_playing() || trs_disk_sfx_active) {
+    if (trs_audio_current_hz != 0) {
         return;
     }
 
     now_ms = to_ms_since_boot(get_absolute_time());
-    if (now_ms - trs_disk_sfx_last_ms < TRS_DISK_SFX_MIN_INTERVAL_MS) {
+    trs_disk_sfx_active_until_ms = now_ms + TRS_DISK_SFX_IDLE_MS;
+    trs_disk_sfx_last_drive = drive;
+
+    if (now_ms - trs_disk_sfx_last_pulse_ms < TRS_DISK_SFX_MIN_PULSE_MS) {
+        if (trs_disk_sfx_mode == TRS_DISK_SFX_IDLE) {
+            trs_disk_sfx_start_motor(drive, now_ms);
+        }
         return;
     }
 
-    hz = (drive == 0) ? TRS_DISK_SFX_D0_HZ : TRS_DISK_SFX_D1_HZ;
-    audio_play_sound(hz, hz);
-    trs_disk_sfx_active = 1;
-    trs_disk_sfx_last_ms = now_ms;
-    trs_disk_sfx_alarm = add_alarm_in_ms(TRS_DISK_SFX_CLICK_MS,
-                                         trs_disk_sfx_stop_callback,
-                                         NULL, false);
-    if (trs_disk_sfx_alarm < 0) {
-        audio_stop();
-        trs_disk_sfx_active = 0;
-    }
+    picocalc_sample_audio_play(picocalc_disk_sfx_track,
+                               picocalc_disk_sfx_track_len,
+                               PICOCALC_DISK_SFX_SAMPLE_RATE, false);
+    trs_disk_sfx_mode = TRS_DISK_SFX_PULSE;
+    trs_disk_sfx_last_pulse_ms = now_ms;
+    track_ms = trs_disk_sfx_track_ms();
+    trs_disk_sfx_schedule_alarm(track_ms > 0 ? track_ms : 1);
 }
 
 static void trs_disk_sfx_toggle(void)
@@ -746,7 +807,7 @@ void trs_disk_led(int drive, int on_off)
     platform_set_disk_led(drive, on_off);
 #ifdef PICOCALC_PLATFORM
     if (on_off) {
-        trs_disk_sfx_click(drive);
+        trs_disk_sfx_activity(drive);
     }
 #endif
 }

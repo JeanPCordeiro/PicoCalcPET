@@ -23,7 +23,7 @@ Use this checklist for disk/FDC validation before changing disk-controller code.
 
 | Date | Case | Media | Result | Notes |
 | --- | --- | --- | --- | --- |
-| 2026-04-24 | `BACKUP :0 :1` | user-tested disk set, details not recorded | pass | Completed on PicoCalcTRS; optional disk clicks were audible and did not hang the workflow. |
+| 2026-04-24 | `BACKUP :0 :1` | user-tested disk set, details not recorded | pass | Completed on PicoCalcTRS; optional disk SFX was audible and did not hang the workflow. |
 
 ## Soak Cases
 

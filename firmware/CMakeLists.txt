@@ -163,6 +163,8 @@ if(PICOCALC_PLATFORM)
     target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_PLATFORM=1)
     target_sources(sdltrs_frontend_stubs PRIVATE
         ${CMAKE_SOURCE_DIR}/fonts/trs80_model3_font_5x18.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/audio/sample_audio.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/assets/generated/disk_sfx_assets.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/audio.c
         platform/platform_picocalc.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/display.c
@@ -179,6 +181,7 @@ if(PICOCALC_PLATFORM)
     target_include_directories(sdltrs_frontend_stubs PUBLIC
         ${PICOCALC_TEXT_STARTER_DIR}
         ${PICOCALC_STARTER_DRIVERS_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/assets/generated
     )
     set_source_files_properties(
         ${PICOCALC_STARTER_DRIVERS_DIR}/display.c

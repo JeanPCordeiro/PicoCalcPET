@@ -260,8 +260,15 @@ else
 fi
 
 if grep -q "PLATFORM_KEY_F4" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
-   grep -q "trs_disk_sfx_click(drive)" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
-   grep -q "trs_audio_current_hz != 0 || audio_is_playing()" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "trs_disk_sfx_activity(drive)" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "TRS_DISK_SFX_MOTOR" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "TRS_DISK_SFX_PULSE" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "picocalc_sample_audio_play" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "picocalc_disk_sfx_spin" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "picocalc_disk_sfx_track" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
+   grep -q "audio/sample_audio.c" "${REPO_ROOT}/firmware/CMakeLists.txt" &&
+   grep -q "disk_sfx_assets.c" "${REPO_ROOT}/firmware/CMakeLists.txt" &&
+   grep -q "trs_audio_current_hz != 0" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c" &&
    grep -q "DSK SFX:on" "${REPO_ROOT}/firmware/frontend/trs_frontend_stub.c"; then
     check_pass "Optional disk SFX toggle is wired safely"
 else
