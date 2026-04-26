@@ -8,6 +8,12 @@ This project is planned as:
 - Emulator reference/core source: `sdltrs`
 - Target machine: TRS-80 Model III
 
+## Authorship and Acknowledgements
+
+PicoCalcTRS is a firmware port and integration work by Jean Pierre CORDEIRO.
+
+This project is built with gratitude to Blair Leduc, creator of [`picocalc-text-starter`](https://github.com/BlairLeduc/picocalc-text-starter), which provides the PicoCalc firmware foundation, and to Mark Grebe and Jens Guenther for [`sdltrs`](https://gitlab.com/jengun/sdltrs), which provides the TRS-80 emulator reference and core behavior used by this port.
+
 ## Project Direction
 
 The PicoCalc starter gives us the embedded platform pieces we need:
@@ -29,28 +35,9 @@ The PicoCalc starter gives us the embedded platform pieces we need:
 
 The important constraint is that `sdltrs` is a desktop emulator built around SDL and host OS facilities. On the PicoCalc, we will need to separate the emulation core from the desktop-facing layers and replace those layers with PicoCalc drivers.
 
-## Original Bring-Up Target
-
-The first useful target was a minimal Model III bring-up:
-
-1. initialize PicoCalc hardware using the starter firmware
-2. load a Model III ROM image from SD card
-3. emulate CPU, RAM, ROM, and memory-mapped video
-4. render the 64x16 text display on the PicoCalc screen
-5. translate PicoCalc keyboard input into the TRS-80 keyboard matrix
-6. boot to the ROM prompt
-
-That milestone avoided the riskiest peripherals at first:
-
-- floppy controller
-- cassette
-- printer
-- debugger UI
-- desktop SDL menus
-
 ## Current Status
 
-Current firmware status is beyond initial bring-up:
+Current firmware status and functionality:
 
 - Model III ROM boot works from SD and embedded fallback.
 - Disk drives `:0` and `:1` are integrated.
@@ -66,6 +53,7 @@ Current firmware status is beyond initial bring-up:
 - PicoCalc Esc maps to TRS BREAK; PicoCalc BRK (Shift+Esc) maps to the TRS reset button.
 - The SDL timing shim uses Pico SDK time so the Z80 throttle path can target real Model III speed.
 - Standard Model III cassette-port game sound is wired to the PicoCalc PWM audio driver, with rate-limited updates for timing-heavy games such as SCARFMAN.
+- Optional PCM-backed disk motor/track SFX is available with F4; F5 mutes audio.
 - Current M1 regression status: 29 automated checks passing, 0 failing.
 
 Expected SD-card layout:
@@ -82,14 +70,13 @@ Files whose names begin with `.` are hidden from the picker.
 
 ## Roadmap
 
-Current enhancement priorities:
+Current project state:
 
-1. redesign the 3 status rows as a compact operator panel for machine, disk images/access activity (`D0:*` active, `D0:.` idle), controls, and transient messages
-2. harden release quality with a repeatable on-device test matrix and clear known-issues list
-3. expand the game compatibility sweep across timing, keyboard, video, disk, and audio behavior
-4. finish video fidelity checks, especially semigraphics and attribute edge cases
-5. continue FDC soak testing and disk-image compatibility checks
-6. broaden Model III game-audio testing, validate the F5 audio mute and optional F4 disk motor/step effect, and improve the audio path if more demanding games expose artifacts
+1. first-release feature work is frozen
+2. usability/operator panel work is complete
+3. audio work is complete for first release
+4. remaining work is release-candidate validation and compatibility matrix filling
+5. post-release validation continues for broader game, video, and FDC image coverage
 
 Explicitly out of scope for this firmware target:
 

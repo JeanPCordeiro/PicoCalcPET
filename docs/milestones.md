@@ -2,6 +2,11 @@
 
 ## Current Snapshot (April 2026)
 
+PicoCalcTRS is now in first-release-candidate state. Core emulator features,
+operator usability, disk workflows, and audio polish are implemented; remaining
+work is release validation, compatibility matrix filling, and bug fixes found
+on hardware.
+
 - Model III boots with SD ROM and embedded-ROM fallback.
 - Disk drives `:0` and `:1` are active.
 - DOS/BASIC write workflows are working in on-device tests.
@@ -15,6 +20,7 @@
 - PicoCalc Esc sends TRS BREAK; PicoCalc BRK (Shift+Esc) presses the TRS reset button.
 - SDL timing shim now uses Pico SDK ticks/delay, enabling real-time Z80 throttling.
 - Standard Model III game sound is active through the PicoCalc PWM audio driver; SCARFMAN has been verified after audio update throttling.
+- Optional PCM-backed disk motor/track SFX is available behind F4, and F5 mutes audio.
 - Latest M1 regression run: 29 passes, 0 failures.
 
 Explicit non-goals for this firmware target:
@@ -45,7 +51,7 @@ Make every firmware iteration repeatable and safe by combining:
 
 ## M2 - Usability Polish
 
-Status: `in progress`
+Status: `completed`
 
 ### Goal
 Make daily use smoother without adding desktop-emulator complexity.
@@ -63,10 +69,10 @@ Make daily use smoother without adding desktop-emulator complexity.
 - Improve startup disk picker behavior where needed, including sorting and clearer labels.
 - Improve ROM/disk load failure messages.
 - Add or refine concise on-device status/help text for paths and controls.
+- Hardware use has accepted the operator panel and disk activity indicator for first release.
 
-### Remaining
-- On-device validation of the operator panel during DOS boot, disk reads, disk writes, and no-disk BASIC boot.
-- Tune labels or truncation if real disk names are hard to scan on hardware.
+### Post-Release Watch
+- Tune labels or truncation only if real disk names are hard to scan on hardware.
 
 ---
 
@@ -86,16 +92,17 @@ Turn the current beta into a repeatable release process before taking riskier em
   - on-device smoke tests
   - release record template
 - Regression reports now include commit, worktree state, UF2 path, UF2 size, and UF2 SHA-256.
+- First-release feature set is frozen pending release-candidate validation.
 
 ### Remaining
-- Keep supported features and known issues current as later milestones land.
 - Use the release checklist on an actual on-device release candidate.
+- Record first-release result, UF2 hash, ROM source, disk images, and known issues.
 
 ---
 
 ## M4 - Game Compatibility Sweep
 
-Status: `in progress`
+Status: `post-release validation`
 
 ### Goal
 Move from "known apps work" to a small, repeatable game compatibility matrix, mostly through observation before code changes.
@@ -109,7 +116,7 @@ Move from "known apps work" to a small, repeatable game compatibility matrix, mo
   - low-risk testing rules
 
 ### Remaining
-- Fill the matrix with on-device results for SCARFMAN, arcade/action titles, BASIC games, semigraphics-heavy games, and disk-boot games.
+- Fill the matrix with more on-device results for arcade/action titles, BASIC games, semigraphics-heavy games, and disk-boot games.
 - Track each game for boot, keyboard, speed, video, audio, and disk behavior.
 - Classify failures by likely subsystem before fixing: timing, keyboard, video, disk, audio, or media-specific.
 - Tune timing/input/audio only when failures are reproducible.
@@ -118,7 +125,7 @@ Move from "known apps work" to a small, repeatable game compatibility matrix, mo
 
 ## M5 - Video Fidelity Completion
 
-Status: `in progress`
+Status: `post-release validation`
 
 ### Completed
 - TRS cursor rendering + firmware cursor suppression in TRS area.
@@ -128,7 +135,7 @@ Status: `in progress`
 - Added [video-fidelity-checklist.md](/workspaces/PicoCalcTRS/docs/video-fidelity-checklist.md) for focused on-device video validation.
 
 ### Remaining
-- Final verification of semigraphics edge cases across app set.
+- Final verification of semigraphics edge cases across a broader app set.
 - Verify inverse, alternate charset, expanded text, cursor behavior, and scrolling under real software.
 - Fix visible compatibility bugs found during the sweep.
 
@@ -136,7 +143,7 @@ Status: `in progress`
 
 ## M6 - FDC Fidelity Hardening
 
-Status: `in progress`
+Status: `post-release validation`
 
 ### Completed Foundation
 - WRITEM compatibility path for DOS workflows.
@@ -158,7 +165,7 @@ Status: `in progress`
 
 ## M7 - Audio Polish
 
-Status: `in progress`
+Status: `completed`
 
 ### Goal
 Keep standard Model III game sound stable and pleasant without implementing cassette data I/O.
@@ -170,16 +177,9 @@ Keep standard Model III game sound stable and pleasant without implementing cass
 - Added PCM-backed disk SFX generated from uploaded `sounds_spin.pcm` and `sounds_track.pcm`.
 - Disk motor/step SFX is throttled and skipped while TRS game audio is active.
 - Hardware smoke confirmed disk SFX during `BACKUP :0 :1`.
+- Audio feature work is frozen for first release.
 
-### Planned
+### Post-Release Watch
 - Test more Model III sound games beyond SCARFMAN.
-- Validate optional disk activity sound effects on hardware:
-  - low-priority motor hum while the emulated disk motor/access indicator is active
-  - short non-blocking access/step pulses during disk activity
-  - tune or disable the effect if it distracts from game audio or DOS workflows
-- Keep audio priority explicit:
-  - TRS game audio has priority
-  - disk activity pulses may play only when safe or as a very short override
-  - motor hum is lowest priority and must never block or override game audio
-- Validate the `F5` mute toggle across SCARFMAN and disk workflows.
-- If artifacts or hangs appear, move the PicoCalc PWM update path toward a non-blocking implementation.
+- Keep current priority rules: TRS game audio wins, disk SFX is optional, F5 mutes all audio.
+- Reopen audio only for reproducible hangs, distracting SFX behavior, or compatibility regressions.

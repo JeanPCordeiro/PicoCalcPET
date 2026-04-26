@@ -1,4 +1,4 @@
-# PicoCalcTRS Release Checklist
+# PicoCalcTRS First Release Checklist
 
 Use this checklist for release candidates and tagged UF2 builds.
 
@@ -38,12 +38,10 @@ Use this checklist for release candidates and tagged UF2 builds.
 
 - Write-heavy disk operations can be slow because the write path favors safety and retries.
 - FDC support is high-confidence beta, but still needs longer soak testing.
-- Procedural semigraphics rendering is implemented, but still needs broader app/game validation.
-- Inverse, alternate charset, expanded text, cursor, and scrolling edge cases need broader app/game validation.
-- Game compatibility matrix is not complete.
-- Game audio is verified with SCARFMAN, but needs broader testing.
-- Optional disk motor/step SFX is implemented behind F4, but still needs on-device tuning.
-- The operator status panel still needs on-device validation across no-disk boot, DOS boot, reads, and writes.
+- Broader game/video compatibility matrix is not complete.
+- Procedural semigraphics, inverse/reverse, alternate charset, expanded text, cursor, and scrolling should continue to be validated across more software after first release.
+- Game audio is verified with SCARFMAN; broader sound-game testing is post-release validation.
+- Optional disk motor/step SFX is implemented behind F4 and accepted for first release.
 
 ## Required Build Checks
 
@@ -89,6 +87,20 @@ Record ROM source, disk images, and pass/fail result for each item. Use `dist/re
 - Press F4, perform disk reads/writes, and confirm optional disk motor/step SFX is audible without disturbing game audio.
 - Update [game-compatibility.md](/workspaces/PicoCalcTRS/docs/game-compatibility.md) with any game results gathered during release testing.
 - Update [video-fidelity-checklist.md](/workspaces/PicoCalcTRS/docs/video-fidelity-checklist.md) with any focused video results gathered during release testing.
+
+## First Release Gate
+
+The first release is ready when:
+
+- `RUN_HOST_BUILD=1 ./scripts/regression-m1.sh` reports `29` passes and `0` failures.
+- The generated `dist/PicoCalcTRS.uf2` boots on PicoCalc hardware.
+- ROM BASIC boots with no disks attached.
+- DOS boots from D0.
+- A write/create/update workflow persists after reboot.
+- `BACKUP :0 :1` reaches expected prompts or completes on scratch media.
+- SCARFMAN runs without audio hang.
+- F4 disk SFX and F5 audio mute work without disrupting emulator control.
+- Remaining issues are documented in the release record.
 
 ## Release Record Template
 
