@@ -1,0 +1,24 @@
+--- a/trs_memory.c
++++ b/trs_memory.c
+@@ -59,11 +59,16 @@
+ #include "trs_state_save.h"
+ #include "trs_uart.h"
+ 
+-#define MAX_ROM_SIZE       (18432)  /* Holmes VID-80 (VX-3) */
+-#define MAX_VIDEO_SIZE     (3072)   /* CP-500 M80 has 3K */
+-#define MAX_MEMORY_SIZE    (4 * 1024 * 1024) + 65536
+-/* Start MegaMem > 1MB to leave space for SuperMem or HyperMem */
+-#define MEGAMEM_START      (1 * 1024 * 1024) + 65536
++#define MAX_ROM_SIZE       (18432)   /* Holmes VID-80 (VX-3) */
++#define MAX_VIDEO_SIZE     (3072)    /* CP-500 M80 has 3K */
++/*
++ * Embedded bring-up target:
++ * - Model III only
++ * - no MegaMem / HyperMem / SuperMem / X-MEM bring-up
++ * - enough headroom for 64K address space plus a modest safety margin
++ */
++#define MAX_MEMORY_SIZE    (128 * 1024)
++#define MEGAMEM_START      (64 * 1024)
+ 
+ /* Model I printer addresses 0x37E8 to 0x37EB */
+ #define PRINTER_1(addr)    (((addr) &~ 3) == 0x37E8)

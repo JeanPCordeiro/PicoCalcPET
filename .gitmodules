@@ -1,0 +1,6 @@
+[submodule "third_party/picocalc-text-starter"]
+	path = third_party/picocalc-text-starter
+	url = https://github.com/BlairLeduc/picocalc-text-starter
+[submodule "third_party/sdltrs"]
+	path = third_party/sdltrs
+	url = https://gitlab.com/jengun/sdltrs

@@ -1,0 +1,594 @@
+--- a/trs_disk.c
++++ b/trs_disk.c
+@@ -1,3 +1,9 @@
++#include <stdio.h>
++#include <sys/stat.h>
++#include "platform/platform_disk_stdio.h"
++#define fopen(...) picocalc_disk_fopen(__VA_ARGS__)
++#define stat(...) picocalc_disk_stat(__VA_ARGS__)
++
+ /*
+  * Copyright (c) 1996-2020, Timothy P. Mann
+  *
+@@ -41,12 +47,17 @@
+ #define TSTATEREV 1       /* Index holes timed by T-states, not real time */
+ #define SIZERETRY 1       /* Retry in different sizes on real_read */
+ #define DMK_MARK_IAM 0    /* Mark IAMs in track header; poor idea */
+-#define NDRIVES 8
++#define NDRIVES 2
++
++#ifndef PICOCALC_ENABLE_DISK_FAULT_DIAG
++#define PICOCALC_ENABLE_DISK_FAULT_DIAG 0
++#endif
+ 
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <time.h>
++#include <errno.h>
+ #include <sys/stat.h>
+ #include <unistd.h>
+ 
+@@ -100,6 +111,39 @@
+ } FDCState;
+ 
+ static FDCState state, other_state;
++#if PICOCALC_ENABLE_DISK_FAULT_DIAG
++static Uint8 picocalc_last_status_snapshot;
++#endif
++
++#if PICOCALC_ENABLE_DISK_FAULT_DIAG
++extern void picocalc_trs_diag_disk_event(Uint8 tag, Uint8 value, Uint8 status,
++                                         int drive, int side, int density, unsigned int pc);
++#else
++static inline void picocalc_trs_diag_disk_event(Uint8 tag, Uint8 value, Uint8 status,
++                                                int drive, int side, int density, unsigned int pc)
++{
++  (void)tag;
++  (void)value;
++  (void)status;
++  (void)drive;
++  (void)side;
++  (void)density;
++  (void)pc;
++}
++#endif
++
++static void
++picocalc_mark_write_fault(Uint8 marker)
++{
++  state.status |= TRSDISK_WRITEFLT;
++#if PICOCALC_ENABLE_DISK_FAULT_DIAG
++  Uint8 err = (errno > 0 && errno < 256) ? (Uint8)errno : 0;
++  picocalc_trs_diag_disk_event('E', marker, err, state.curdrive,
++                               state.curside, state.density, (unsigned int)Z80_PC);
++#else
++  (void)marker;
++#endif
++}
+ 
+ /* Format states - what is expected next? */
+ #define FMT_GAP0    0
+@@ -297,6 +341,13 @@
+ } DiskState;
+ 
+ static DiskState disk[NDRIVES];
++static int drive_selected_valid = 1;
++
++static int
++drive_index_valid(int drive)
++{
++  return (drive >= 0 && drive < NDRIVES);
++}
+ 
+ /* Emulate interleave in JV1 mode */
+ static const Uint8 jv1_interleave[10] = {0, 5, 1, 6, 2, 7, 3, 8, 4, 9};
+@@ -391,7 +442,7 @@
+ void
+ trs_disk_setsize(int unit, int value)
+ {
+-  if (unit < 0 || unit > 7) return;
++  if (!drive_index_valid(unit)) return;
+   disk[unit].inches = (value == 8) ? 8 : 5;
+ }
+ 
+@@ -399,7 +450,7 @@
+ void
+ trs_disk_setstep(int unit, int value)
+ {
+-  if (unit < 0 || unit > 7) return;
++  if (!drive_index_valid(unit)) return;
+   disk[unit].real_step = (value == 2) ? 2 : 1;
+ }
+ #endif
+@@ -407,25 +458,28 @@
+ int
+ trs_disk_getsize(int unit)
+ {
+-  if (unit < 0 || unit > 7) return 0;
++  if (!drive_index_valid(unit)) return 0;
+   return disk[unit].inches;
+ }
+ 
+ const char*
+ trs_disk_getfilename(int unit)
+ {
++  if (!drive_index_valid(unit)) return "";
+   return disk[unit].filename;
+ }
+ 
+ int
+ trs_disk_getdisktype(int unit)
+ {
++  if (!drive_index_valid(unit)) return NONE;
+   return disk[unit].emutype;
+ }
+ 
+ int
+ trs_disk_getwriteprotect(int unit)
+ {
++  if (!drive_index_valid(unit)) return 0;
+   return disk[unit].writeprot;
+ }
+ 
+@@ -433,7 +487,7 @@
+ int
+ trs_disk_getstep(int unit)
+ {
+-  if (unit < 0 || unit > 7) return 0;
++  if (!drive_index_valid(unit)) return 0;
+   return disk[unit].real_step;
+ }
+ #endif
+@@ -457,6 +511,7 @@
+   state.controller = (trs_model == 1) ? TRSDISK_P1771 : TRSDISK_P1791;
+   state.last_readadr = -1;
+   state.motor_timeout = 0;
++  drive_selected_valid = 1;
+ 
+   if (poweron) {
+     int i;
+@@ -516,6 +571,8 @@
+ trs_disk_unimpl(Uint8 cmd, const char *more)
+ {
+   state.status = TRSDISK_NOTRDY|TRSDISK_WRITEFLT|TRSDISK_NOTFOUND;
++  picocalc_trs_diag_disk_event('U', cmd, state.status, state.curdrive,
++                               state.curside, state.density, (unsigned int)Z80_PC);
+   state.bytecount = state.format_bytecount = 0;
+   state.format = FMT_DONE;
+   trs_disk_drq_interrupt();
+@@ -543,6 +600,10 @@
+ static void
+ jv3_sort_ids(int drive)
+ {
++  if (!drive_index_valid(drive)) {
++    return;
++  }
++
+   DiskState *d = &disk[drive];
+   int const olddrive = state.curdrive;
+   int i, track, side;
+@@ -717,42 +778,75 @@
+ static void
+ trs_disk_emutype(DiskState *d)
+ {
++  unsigned char hdr[DMK_HDR_SIZE];
++  long file_size;
++  int nsides;
++  long expected_size;
++  int i;
+   int c;
+ 
++  file_size = 0;
++  if (fseek(d->file, 0, SEEK_END) == 0) {
++    file_size = ftell(d->file);
++  }
++
+   fseek(d->file, 0, 0);
+   c = getc(d->file);
+   if (c == -1) {
+     d->emutype = JV1;
+     return;
+   }
+-  if (c == 0 || c == 0xff) {
+-    char fmt[4];
+-    int count;
+ 
+-    fseek(d->file, DMK_FORMAT, 0);
+-    count = fread(fmt, 1, DMK_FORMAT_SIZE, d->file);
+-    if (count != DMK_FORMAT_SIZE) {
+-      d->emutype = JV1;
+-      return;
+-    }
+-    if (fmt[0] == 0 && fmt[1] == 0 && fmt[2] == 0 && fmt[3] == 0) {
+-      fseek(d->file, DMK_TRACKLEN, 0);
+-      count = (Uint8) getc(d->file);
+-      count += (Uint8) getc(d->file) << 8;
+-      if (count >= 16 && count <= DMK_TRACKLEN_MAX) {
+-	d->emutype = DMK;
+-	d->writeprot = d->writeprot || (c == 0xff);
+-	return;
+-      }
+-    }
+-    if (fmt[0] == 0x78 && fmt[1] == 0x56 && fmt[2] == 0x34 && fmt[3] == 0x12) {
++  /*
++   * DMK detection must be strict. A raw JV1/JV3 image with a leading 0x00 can
++   * otherwise be misclassified as DMK and fail later with opaque DOS errors.
++   */
++  if ((c == 0 || c == 0xff) &&
++      fseek(d->file, 0, SEEK_SET) == 0 &&
++      fread(hdr, 1, sizeof(hdr), d->file) == sizeof(hdr)) {
++    if (hdr[DMK_FORMAT + 0] == 0x78 &&
++        hdr[DMK_FORMAT + 1] == 0x56 &&
++        hdr[DMK_FORMAT + 2] == 0x34 &&
++        hdr[DMK_FORMAT + 3] == 0x12) {
+       error("Real disk specifier file from DMK emulator not supported");
+       d->emutype = NONE;
+       fclose(d->file);
+       d->file = NULL;
+       return;
+     }
++
++    if (hdr[DMK_FORMAT + 0] == 0 &&
++        hdr[DMK_FORMAT + 1] == 0 &&
++        hdr[DMK_FORMAT + 2] == 0 &&
++        hdr[DMK_FORMAT + 3] == 0) {
++      int tracklen = hdr[DMK_TRACKLEN] | (hdr[DMK_TRACKLEN + 1] << 8);
++      int ntracks = hdr[DMK_NTRACKS];
++      int opts = hdr[DMK_OPTIONS];
++      int reserved_ok = 1;
++
++      for (i = 5; i < 12; ++i) {
++        if (hdr[i] != 0) {
++          reserved_ok = 0;
++          break;
++        }
++      }
++
++      nsides = (opts & DMK_SSIDE_OPT) ? 1 : 2;
++      expected_size = DMK_HDR_SIZE + (long)ntracks * (long)tracklen * (long)nsides;
++
++      if (reserved_ok &&
++          tracklen >= 16 &&
++          tracklen <= DMK_TRACKLEN_MAX &&
++          ntracks > 0 &&
++          nsides >= 1 && nsides <= 2 &&
++          file_size >= expected_size) {
++        d->emutype = DMK;
++        d->writeprot = d->writeprot || (c == 0xff);
++        return;
++      }
++    }
+   }
++
+   if (c == 0) {
+     fseek(d->file, 1, 0);
+     if (getc(d->file) == 0xfe) {
+@@ -773,6 +867,10 @@
+ void
+ trs_disk_remove(int drive)
+ {
++  if (!drive_index_valid(drive)) {
++    return;
++  }
++
+   DiskState *d = &disk[drive];
+ 
+   if (d->file != NULL) {
+@@ -786,6 +884,11 @@
+ void
+ trs_disk_insert(int drive, const char *diskname)
+ {
++  if (!drive_index_valid(drive)) {
++    state.status |= TRSDISK_NOTRDY;
++    return;
++  }
++
+   DiskState *d = &disk[drive];
+   struct stat st = { 0 };
+   int c;
+@@ -1207,7 +1310,7 @@
+ static void
+ type1_status(void)
+ {
+-  const DiskState *d = &disk[state.curdrive];
++  const DiskState *d;
+ 
+   switch (cmd_type(state.currcommand)) {
+   case 1:
+@@ -1217,6 +1320,14 @@
+     return;
+   }
+ 
++  if (!drive_selected_valid) {
++    state.status |= (TRSDISK_INDEX | TRSDISK_TRKZERO | TRSDISK_NOTRDY);
++    state.status &= ~(TRSDISK_WRITEPRT | TRSDISK_HEADENGD);
++    return;
++  }
++
++  d = &disk[state.curdrive];
++
+   if (d->file == NULL || (d->emutype == REAL && d->u.real.empty)) {
+     state.status |= TRSDISK_INDEX;
+   } else {
+@@ -1247,6 +1358,9 @@
+ void
+ trs_disk_select_write(Uint8 data)
+ {
++  int selected_drive = state.curdrive;
++  Uint8 select_raw = data;
++
+ #ifdef ZBX
+   static int old_data = -1;
+ 
+@@ -1298,32 +1412,32 @@
+     state.status |= TRSDISK_NOTRDY;
+     break;
+   case TRSDISK_0:
+-    state.curdrive = 0;
++    selected_drive = 0;
+     break;
+   case TRSDISK_1:
+-    state.curdrive = 1;
++    selected_drive = 1;
+     break;
+   case TRSDISK_2:
+-    state.curdrive = 2;
++    selected_drive = 2;
+     break;
+   case TRSDISK_3:
+-    state.curdrive = 3;
++    selected_drive = 3;
+     break;
+   case TRSDISK_4:
+     /* fake value for emulator only */
+-    state.curdrive = 4;
++    selected_drive = 4;
+     break;
+   case TRSDISK_5:
+     /* fake value for emulator only */
+-    state.curdrive = 5;
++    selected_drive = 5;
+     break;
+   case TRSDISK_6:
+     /* fake value for emulator only */
+-    state.curdrive = 6;
++    selected_drive = 6;
+     break;
+   case TRSDISK_7:
+     /* fake value for emulator only */
+-    state.curdrive = 7;
++    selected_drive = 7;
+     break;
+   default:
+     trs_disk_unimpl(data, "bogus drive select");
+@@ -1332,7 +1446,15 @@
+   }
+ 
+   /* Select drives 4-7 for 8" disks */
+-  state.curdrive = (state.curdrive + state.inches) & 7;
++  selected_drive = (selected_drive + state.inches) & 7;
++
++  if (!drive_index_valid(selected_drive)) {
++    state.status |= TRSDISK_NOTRDY;
++    drive_selected_valid = 0;
++  } else {
++    state.curdrive = selected_drive;
++    drive_selected_valid = 1;
++  }
+ 
+   /* If a drive was selected... */
+   if (!(state.status & TRSDISK_NOTRDY)) {
+@@ -1346,6 +1468,8 @@
+     /* Update our knowledge of whether there is a real disk present */
+     if (d->emutype == REAL) real_check_empty(d);
+   }
++  picocalc_trs_diag_disk_event('S', select_raw, state.status, selected_drive,
++                               state.curside, state.density, (unsigned int)Z80_PC);
+ }
+ 
+ Uint8
+@@ -1658,6 +1782,7 @@
+ #endif
+   switch (state.currcommand & TRSDISK_CMDMASK) {
+   case TRSDISK_WRITE:
++  case TRSDISK_WRITEM:
+     if (state.bytecount > 0) {
+       if (d->emutype == REAL) {
+ 	d->u.real.buf[size_code_to_size(d->u.real.size_code)
+@@ -1763,18 +1888,21 @@
+ 	  state.format = FMT_DONE;
+ 	  state.status &= ~TRSDISK_DRQ;
+ 	  /* Done: write modified track */
++	  errno = 0;
+ 	  fseek(d->file, DMK_HDR_SIZE +
+ 		(d->phytrack * d->u.dmk.nsides + state.curside) *
+ 		d->u.dmk.tracklen, 0);
++	  errno = 0;
+ 	  c = fwrite(d->u.dmk.buf, d->u.dmk.tracklen, 1, d->file);
+-	  if (c != 1) state.status |= TRSDISK_WRITEFLT;
++	  if (c != 1) picocalc_mark_write_fault(0xD1);
+ 	  if (d->phytrack >= d->u.dmk.ntracks) {
+ 	    d->u.dmk.ntracks = d->phytrack + 1;
+ 	    fseek(d->file, DMK_NTRACKS, 0);
+ 	    putc(d->u.dmk.ntracks, d->file);
+ 	  }
++	  errno = 0;
+ 	  c = fflush(d->file);
+-	  if (c == EOF) state.status |= TRSDISK_WRITEFLT;
++	  if (c == EOF) picocalc_mark_write_fault(0xD2);
+ 	  trs_disk_drq_interrupt();
+ 	  if (trs_event_scheduled() == trs_disk_lostdata) {
+ 	    trs_cancel_event();
+@@ -1887,7 +2015,7 @@
+ 	  fseek(d->file, idoffset(d, state.format_sec), 0);
+ 	  c = fwrite(&d->u.jv3.id[state.format_sec],
+ 		     sizeof(SectorId), 1, d->file);
+-	  if (c == EOF) state.status |= TRSDISK_WRITEFLT;
++          if (c == EOF) picocalc_mark_write_fault(0xE1);
+ 	}
+       } else if (state.format != FMT_GAP3) {
+ 	/* If not in FMT_GAP3 state, format data was either too long,
+@@ -1918,7 +2046,7 @@
+ 	real_writetrk();
+       } else {
+ 	c = fflush(d->file);
+-	if (c == EOF) state.status |= TRSDISK_WRITEFLT;
++        if (c == EOF) picocalc_mark_write_fault(0xE2);
+       }
+       trs_disk_drq_interrupt();
+       if (trs_event_scheduled() == trs_disk_lostdata) {
+@@ -1967,7 +2095,7 @@
+       if (d->emutype == REAL) {
+ 	if (d->u.real.fmt_nbytes >= sizeof(d->u.real.buf)) {
+ 	  /* Data structure full */
+-	  state.status |= TRSDISK_WRITEFLT;
++          picocalc_mark_write_fault(0xE3);
+ 	  state.bytecount = 0;
+ 	  state.format_bytecount = 0;
+ 	  state.format = FMT_DONE;
+@@ -1976,7 +2104,9 @@
+ 	  state.format = FMT_HEADID;
+ 	}
+       } else {
+-	if (data != d->phytrack) {
++	if (d->emutype == DMK) {
++	  d->phytrack = data;
++	} else if (data != d->phytrack) {
+ 	  trs_disk_unimpl(state.currcommand, "false track number");
+ 	}
+ 	state.format = FMT_HEADID;
+@@ -1993,7 +2123,9 @@
+ 	  trs_disk_unimpl(state.currcommand, "JV1 double density");
+ 	}
+       } else {
+-	if (data != state.curside) {
++	if (d->emutype == DMK) {
++	  state.curside = (data != 0) ? 1 : 0;
++	} else if (data != state.curside) {
+ 	  trs_disk_unimpl(state.currcommand, "false head number");
+ 	}
+       }
+@@ -2020,7 +2152,7 @@
+ 
+ 	if (id_index == -1) {
+ 	  /* Data structure full */
+-	  state.status |= TRSDISK_WRITEFLT;
++          picocalc_mark_write_fault(0xE4);
+ 	  state.bytecount = 0;
+ 	  state.format_bytecount = 0;
+ 	  state.format = FMT_DONE;
+@@ -2042,7 +2174,7 @@
+ 	}
+ 	d->u.real.size_code = data;
+       } else {
+-	if (data != 0x01) {
++	if (d->emutype != DMK && data != 0x01) {
+ 	  trs_disk_unimpl(state.currcommand, "sector size != 256");
+ 	}
+       }
+@@ -2252,6 +2384,19 @@
+       state.status |= TRSDISK_NOTRDY;
+     }
+   }
++
++#if PICOCALC_ENABLE_DISK_FAULT_DIAG
++  if (((state.currcommand & TRSDISK_CMDMASK) == TRSDISK_WRITE ||
++       (state.currcommand & TRSDISK_CMDMASK) == TRSDISK_WRITEM ||
++       (state.currcommand & TRSDISK_CMDMASK) == TRSDISK_WRITETRK) &&
++      (state.status & TRSDISK_WRITEFLT) &&
++      !(picocalc_last_status_snapshot & TRSDISK_WRITEFLT)) {
++    picocalc_trs_diag_disk_event('W', state.currcommand, state.status,
++                                 state.curdrive, state.curside, state.density,
++                                 (unsigned int)Z80_PC);
++  }
++  picocalc_last_status_snapshot = state.status;
++#endif
+ #ifdef ZBX
+   if ((trs_disk_debug_flags & DISKDEBUG_FDCREG) &&
+       state.status != last_status) {
+@@ -2297,6 +2442,29 @@
+     debug("[PC=%04X] command_write(0x%02X)\n", Z80_PC, cmd);
+   }
+ #endif
++  picocalc_trs_diag_disk_event('C', cmd, state.status, state.curdrive,
++                               state.curside, state.density, (unsigned int)Z80_PC);
++
++  if (state.status & TRSDISK_NOTRDY) {
++    event = trs_event_scheduled();
++    if (event == trs_disk_lostdata || event == trs_disk_intrq_interrupt) {
++      trs_cancel_event();
++    }
++    trs_disk_intrq_interrupt(0);
++    state.currcommand = cmd;
++    state.bytecount = 0;
++    state.format = FMT_DONE;
++    state.format_bytecount = 0;
++    state.status &= ~(TRSDISK_BUSY | TRSDISK_DRQ | TRSDISK_LOSTDATA |
++                      TRSDISK_CRCERR | TRSDISK_RECTYPE | TRSDISK_NOTFOUND |
++                      TRSDISK_WRITEFLT | TRSDISK_WRITEPRT);
++    state.status |= TRSDISK_NOTRDY;
++    trs_disk_drq_interrupt();
++    trs_disk_done(0);
++    picocalc_trs_diag_disk_event('N', cmd, state.status, state.curdrive,
++                                 state.curside, state.density, (unsigned int)Z80_PC);
++    return;
++  }
+ 
+   /* Handle DMK partial track reformat */
+   if (d->emutype == DMK &&
+@@ -2681,9 +2849,11 @@
+     break;
+ 
+   case TRSDISK_WRITE:
++  case TRSDISK_WRITEM:
+ #ifdef ZBX
+     if (trs_disk_debug_flags & DISKDEBUG_FDCCMD) {
+-      debug("write 0x%02X, drv %d, sid %d, ptk %d, tk %d, sec %d, %sden\n",
++      debug("write%s 0x%02X, drv %d, sid %d, ptk %d, tk %d, sec %d, %sden\n",
++            ((cmd & TRSDISK_CMDMASK) == TRSDISK_WRITEM) ? "m" : "",
+ 	    cmd, state.curdrive, state.curside, d->phytrack,
+ 	    state.track, state.sector, state.density ? "d" : "s");
+     }
+@@ -2908,15 +3078,11 @@
+       trs_schedule_event(trs_disk_lostdata, state.currcommand,
+ 			 500000 * z80_state.clockMHz);
+     }
+-    break;
+-
+-  case TRSDISK_WRITEM:
+-    state.last_readadr = -1;
+-    if (d->writeprot) {
+-      state.status = TRSDISK_WRITEPRT;
+-      break;
+-    }
+-    trs_disk_unimpl(cmd, "write multiple");
++    /*
++     * WD17xx WRITE MULTIPLE (0xB0) is handled as repeated single-sector write.
++     * This compatibility fallback is sufficient for DOS file creation/update
++     * paths that issue WRITEM on Model III media.
++     */
+     break;
+ 
+   case TRSDISK_READADR:
+@@ -3177,14 +3343,12 @@
+ 	d->u.real.size_code = -1; /* watch for first, then check others match*/
+ 	d->u.real.fmt_nbytes = 0; /* size of PC formatting command buffer */
+       } else if (d->emutype == DMK) {
+-	if (state.density && d->u.dmk.sden) {
+-	  error("DMK disk created as single density only");
+-	  state.status |= TRSDISK_WRITEFLT;
+-	}
+-	if (state.curside && d->u.dmk.nsides == 1) {
+-	  error("DMK disk created as single sided only");
+-	  state.status |= TRSDISK_WRITEFLT;
+-	}
++	/*
++	 * PicoCalc compatibility: allow WRITETRK even when the original DMK
++	 * header advertises single-density or single-sided media. DOS tools
++	 * like FORMAT/BACKUP may switch density/side during operation and we
++	 * prefer successful guest writes over strict host-header enforcement.
++	 */
+ 	d->u.dmk.curtrack = d->phytrack;
+ 	d->u.dmk.curside = state.curside;
+ 	memset(d->u.dmk.buf, 0, sizeof(d->u.dmk.buf));
