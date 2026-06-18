@@ -1,221 +1,59 @@
 #include "platform.h"
 
 #include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
 
-#include "trs.h"
-
-#include "drivers/picocalc.h"
-#include "drivers/keyboard.h"
-#include "drivers/lcd.h"
+#include "assets/generated/pet2001_logo.h"
 #include "drivers/display.h"
 #include "drivers/fat32.h"
 #include "drivers/font.h"
+#include "drivers/keyboard.h"
+#include "drivers/lcd.h"
+#include "drivers/picocalc.h"
 #include "drivers/sdcard.h"
 
-extern volatile bool user_interrupt;
-
-typedef struct {
-    uint8_t width;
-    uint8_t height;
-    uint8_t glyphs[];
-} trs_font_t;
-
-extern const trs_font_t trs80_model3_font_5x18;
-
-enum {
-    PICOCALC_TRS_FONT_WIDTH = 5,
-    PICOCALC_TRS_FONT_HEIGHT = 18,
-    PICOCALC_TRS_FONT_STATUS_GAP = 0
-};
+volatile bool user_interrupt = false;
 
 #define PICOCALC_STATUS_CYAN RGB(0, 255, 255)
-#define PICOCALC_TRS_AMBER RGB(255, 191, 0)
+#define PICOCALC_PET_GREEN RGB(0, 255, 128)
+#define PICOCALC_PET_CELL_WIDTH 8
+#define PICOCALC_PET_CELL_HEIGHT 8
+#define PICOCALC_PET_FONT_HEIGHT 10
 
-static int picocalc_cols = 64;
-static int picocalc_rows = 16;
-static int picocalc_status_row;
+static int picocalc_cols = 40;
+static int picocalc_rows = 25;
+static int picocalc_status_row = 25;
 static int picocalc_status_rows;
 static int picocalc_status_next_line;
 static fat32_error_t picocalc_last_file_error = FAT32_OK;
 static bool picocalc_platform_initialised;
-static bool picocalc_use_trs_font;
-static uint16_t picocalc_trs_cell_buffer[PICOCALC_TRS_FONT_WIDTH * 2 * PICOCALC_TRS_FONT_HEIGHT];
 
-typedef struct {
-    char name[28];
-    bool present;
-    bool write_protected;
-    uint32_t active_until_ms;
-} picocalc_operator_disk_t;
-
-static char picocalc_operator_rom_source[8] = "--";
-static int picocalc_operator_rom_size;
-static picocalc_operator_disk_t picocalc_operator_disks[2];
-static bool picocalc_operator_enabled;
-static uint16_t picocalc_operator_last_pc;
-static float picocalc_operator_last_clock_mhz;
-static bool picocalc_operator_last_audio_enabled;
-static bool picocalc_operator_last_disk_sfx_enabled;
-static char picocalc_operator_transient[65];
-static uint32_t picocalc_operator_transient_until_ms;
-
-#define PICOCALC_DISK_ACTIVITY_MS 250u
-#define PICOCALC_STATUS_TRANSIENT_MS 2500u
-
-static uint16_t picocalc_trs_foreground(void)
+static int picocalc_pet_screen_pixel_height(void)
 {
-    return PICOCALC_TRS_AMBER;
+    return picocalc_rows * PICOCALC_PET_CELL_HEIGHT;
 }
 
-static uint16_t picocalc_trs_background(void)
+static void picocalc_draw_pet2001_logo(void)
 {
-    return BACKGROUND;
-}
+    int y = picocalc_pet_screen_pixel_height();
 
-static int picocalc_trs_pixel_height(void)
-{
-    return picocalc_rows * PICOCALC_TRS_FONT_HEIGHT;
-}
-
-static void picocalc_draw_status_divider(void)
-{
-    int gap_top;
-    int gap_height;
-    int line_y;
-
-    if (!picocalc_use_trs_font || picocalc_status_rows <= 0) {
+    if (picocalc_cols != 40 || picocalc_rows != 25) {
+        return;
+    }
+    if (y + PET2001_LOGO_HEIGHT > HEIGHT) {
         return;
     }
 
-    gap_top = picocalc_trs_pixel_height();
-    gap_height = (picocalc_status_row * GLYPH_HEIGHT) - gap_top;
-    if (gap_height <= 0) {
-        return;
-    }
-
-    line_y = gap_top + ((gap_height - 1) / 2);
-    lcd_solid_rectangle(PICOCALC_STATUS_CYAN, 0, (uint16_t)line_y, WIDTH, 1);
-}
-
-static void picocalc_render_trs_cell(int col, int row, uint8_t ch, uint8_t mode)
-{
-    const uint8_t *glyph;
-    uint8_t glyph_code = ch;
-    uint16_t *pixel = picocalc_trs_cell_buffer;
-    uint16_t fg = picocalc_trs_foreground();
-    uint16_t bg = picocalc_trs_background();
-    bool invert = false;
-    bool expanded = (mode & EXPANDED) != 0;
-    bool cursor = (mode & PLATFORM_CELL_CURSOR) != 0;
-    bool underscore = (mode & PLATFORM_CELL_UNDERSCORE) != 0;
-    int cell_width = PICOCALC_TRS_FONT_WIDTH;
-    int block_x_mid;
-    int block_y_mid;
-    int block_y_bottom;
-    int x;
-    int y;
-    int src_row;
-
-    if (expanded && (col & 1)) {
-        return;
-    }
-
-    if ((mode & REVERSE) && !(mode & INVERSE)) {
-        invert = true;
-    }
-
-    if (trs_model > 1 && glyph_code >= 0xC0 &&
-        (mode & (ALTERNATE | INVERSE)) == 0) {
-        glyph_code = (uint8_t)(glyph_code - 0x40);
-    }
-
-    if ((mode & INVERSE) && (glyph_code & 0x80)) {
-        invert = true;
-        glyph_code = (uint8_t)(glyph_code & 0x7F);
-    }
-
-    if (invert) {
-        uint16_t tmp = fg;
-        fg = bg;
-        bg = tmp;
-    }
-
-    if (expanded) {
-        cell_width *= 2;
-    }
-
-    if ((mode & INVERSE) == 0 && glyph_code >= 0x80 && glyph_code <= 0xBF) {
-        uint8_t graphics_code = (uint8_t)(glyph_code - 0x80);
-
-        block_x_mid = cell_width / 2;
-        block_y_mid = trs80_model3_font_5x18.height / 3;
-        block_y_bottom = (trs80_model3_font_5x18.height * 2) / 3;
-
-        for (src_row = 0; src_row < trs80_model3_font_5x18.height; ++src_row) {
-            int block_row = (src_row < block_y_mid) ? 0 : (src_row < block_y_bottom) ? 1 : 2;
-            int dst_col;
-
-            for (dst_col = 0; dst_col < cell_width; ++dst_col) {
-                int block_col = (dst_col < block_x_mid) ? 0 : 1;
-                int block_bit = block_row * 2 + block_col;
-                uint16_t colour = (graphics_code & (1u << block_bit)) ? fg : bg;
-
-                if (underscore && src_row == (trs80_model3_font_5x18.height - 1)) {
-                    colour = fg;
-                }
-                if (cursor) {
-                    colour = (colour == fg) ? bg : fg;
-                }
-                *(pixel++) = colour;
-            }
-        }
-
-        x = col * PICOCALC_TRS_FONT_WIDTH;
-        y = row * PICOCALC_TRS_FONT_HEIGHT;
-        lcd_blit(picocalc_trs_cell_buffer, (uint16_t)x, (uint16_t)y, (uint16_t)cell_width,
-                 trs80_model3_font_5x18.height);
-        return;
-    }
-
-    glyph = &trs80_model3_font_5x18.glyphs[glyph_code * trs80_model3_font_5x18.height];
-
-    for (src_row = 0; src_row < trs80_model3_font_5x18.height; ++src_row) {
-        uint8_t bits = glyph[src_row];
-        int bit;
-
-        for (bit = 0; bit < trs80_model3_font_5x18.width; ++bit) {
-            uint16_t colour = (bits & (1u << (trs80_model3_font_5x18.width - 1 - bit))) ? fg : bg;
-
-            if (underscore && src_row == (trs80_model3_font_5x18.height - 1)) {
-                colour = fg;
-            }
-
-            if (cursor) {
-                colour = (colour == fg) ? bg : fg;
-            }
-
-            if (expanded) {
-                *(pixel++) = colour;
-                *(pixel++) = colour;
-            } else {
-                *(pixel++) = colour;
-            }
-        }
-    }
-
-    x = col * PICOCALC_TRS_FONT_WIDTH;
-    y = row * PICOCALC_TRS_FONT_HEIGHT;
-    lcd_blit(picocalc_trs_cell_buffer, (uint16_t)x, (uint16_t)y, (uint16_t)cell_width,
-             trs80_model3_font_5x18.height);
+    lcd_blit(pet2001_logo_rgb565, 0, (uint16_t)y,
+             PET2001_LOGO_WIDTH, PET2001_LOGO_HEIGHT);
 }
 
 static void picocalc_clear_line(int row)
@@ -229,7 +67,7 @@ static void picocalc_clear_line(int row)
     lcd_erase_line((uint8_t)row, 0, (uint8_t)(max_col - 1));
 }
 
-static void picocalc_write_line(int row, const char *text)
+static void picocalc_write_line(int row, const char *text, uint16_t foreground)
 {
     int max_col = lcd_get_columns();
     int col;
@@ -238,7 +76,7 @@ static void picocalc_write_line(int row, const char *text)
         return;
     }
 
-    lcd_set_foreground(PICOCALC_STATUS_CYAN);
+    lcd_set_foreground(foreground);
     lcd_set_background(BACKGROUND);
     picocalc_clear_line(row);
     for (col = 0; col < max_col && text[col] != '\0'; ++col) {
@@ -246,112 +84,39 @@ static void picocalc_write_line(int row, const char *text)
     }
 }
 
-static const char *picocalc_leaf_name(const char *path)
+static void picocalc_draw_font_cell8(int col, int row, uint8_t ch, uint8_t mode)
 {
-    const char *cursor;
-    const char *leaf;
+    static uint16_t pixels[PICOCALC_PET_CELL_WIDTH * PICOCALC_PET_CELL_HEIGHT]
+        __attribute__((aligned(4)));
+    bool reverse = (mode & PLATFORM_CELL_CURSOR) != 0;
+    bool underscore = (mode & PLATFORM_CELL_UNDERSCORE) != 0;
+    const uint8_t *glyph = &font_5x10.glyphs[ch * PICOCALC_PET_FONT_HEIGHT];
+    int pixel_row;
+    int pixel_col;
 
-    if (path == NULL || path[0] == '\0') {
-        return "none";
-    }
+    for (pixel_row = 0; pixel_row < PICOCALC_PET_CELL_HEIGHT; ++pixel_row) {
+        uint8_t bits = glyph[pixel_row];
 
-    leaf = path;
-    for (cursor = path; *cursor != '\0'; ++cursor) {
-        if (*cursor == '/' || *cursor == '\\') {
-            leaf = cursor + 1;
+        if (underscore && pixel_row == PICOCALC_PET_CELL_HEIGHT - 1) {
+            bits = 0x1F;
+        }
+        for (pixel_col = 0; pixel_col < PICOCALC_PET_CELL_WIDTH; ++pixel_col) {
+            bool on = pixel_col < 5 &&
+                      (bits & (uint8_t)(0x10u >> pixel_col)) != 0;
+
+            if (reverse) {
+                on = !on;
+            }
+            pixels[pixel_row * PICOCALC_PET_CELL_WIDTH + pixel_col] =
+                on ? PICOCALC_PET_GREEN : BACKGROUND;
         }
     }
 
-    return (leaf[0] != '\0') ? leaf : path;
-}
-
-static void picocalc_copy_disk_label(char *target, size_t target_size, const char *path)
-{
-    const char *leaf;
-    size_t len;
-
-    if (target == NULL || target_size == 0) {
-        return;
-    }
-
-    leaf = picocalc_leaf_name(path);
-    len = strlen(leaf);
-    if (len >= target_size) {
-        size_t keep = target_size - 2;
-        memcpy(target, leaf, keep);
-        target[keep] = '~';
-        target[keep + 1] = '\0';
-        return;
-    }
-
-    memcpy(target, leaf, len + 1);
-}
-
-static void picocalc_write_operator_line(int line, const char *text)
-{
-    char buffer[65];
-
-    if (text == NULL || line < 0 || line >= picocalc_status_rows) {
-        return;
-    }
-
-    snprintf(buffer, sizeof(buffer), "%-64.64s", text);
-    picocalc_write_line(picocalc_status_row + line, buffer);
-}
-
-static void picocalc_render_operator_panel(void)
-{
-    char line0[80];
-    char line1[96];
-    const char *d0_name;
-    const char *d1_name;
-    char d0_active;
-    char d1_active;
-    const char *d0_mode;
-    const char *d1_mode;
-    uint32_t now_ms;
-
-    if (!picocalc_operator_enabled || picocalc_status_rows <= 0) {
-        return;
-    }
-
-    now_ms = to_ms_since_boot(get_absolute_time());
-    d0_name = picocalc_operator_disks[0].present ? picocalc_operator_disks[0].name : "none";
-    d1_name = picocalc_operator_disks[1].present ? picocalc_operator_disks[1].name : "none";
-    d0_active = (picocalc_operator_disks[0].present &&
-                 now_ms < picocalc_operator_disks[0].active_until_ms) ? '*' : '.';
-    d1_active = (picocalc_operator_disks[1].present &&
-                 now_ms < picocalc_operator_disks[1].active_until_ms) ? '*' : '.';
-    d0_mode = picocalc_operator_disks[0].present
-        ? (picocalc_operator_disks[0].write_protected ? "ro" : "rw")
-        : "--";
-    d1_mode = picocalc_operator_disks[1].present
-        ? (picocalc_operator_disks[1].write_protected ? "ro" : "rw")
-        : "--";
-
-    snprintf(line0, sizeof(line0), "M3 %.2fMHz ROM:%s PC:%04X AUD:%s DSK:%s",
-             (double)picocalc_operator_last_clock_mhz,
-             picocalc_operator_rom_source,
-             (unsigned int)picocalc_operator_last_pc,
-             picocalc_operator_last_audio_enabled ? "on" : "off",
-             picocalc_operator_last_disk_sfx_enabled ? "on" : "off");
-    snprintf(line1, sizeof(line1), "D0:%c %-18.18s %s   D1:%c %-18.18s %s",
-             d0_active, d0_name, d0_mode,
-             d1_active, d1_name, d1_mode);
-
-    picocalc_write_operator_line(0, line0);
-    if (picocalc_status_rows > 1) {
-        picocalc_write_operator_line(1, line1);
-    }
-    if (picocalc_status_rows > 2) {
-        if (picocalc_operator_transient[0] != '\0' &&
-            now_ms < picocalc_operator_transient_until_ms) {
-            picocalc_write_operator_line(2, picocalc_operator_transient);
-        } else {
-            picocalc_operator_transient[0] = '\0';
-            picocalc_write_operator_line(2, "ESC=BREAK BRK=RESET F5=AUD F4=DSK");
-        }
-    }
+    lcd_blit(pixels,
+             (uint16_t)(col * PICOCALC_PET_CELL_WIDTH),
+             (uint16_t)(row * PICOCALC_PET_CELL_HEIGHT),
+             PICOCALC_PET_CELL_WIDTH,
+             PICOCALC_PET_CELL_HEIGHT);
 }
 
 void platform_init(void)
@@ -364,7 +129,7 @@ void platform_init(void)
     picocalc_init();
     stdio_set_driver_enabled(&picocalc_stdio_driver, false);
     lcd_set_font(&font_5x10);
-    lcd_set_foreground(PICOCALC_STATUS_CYAN);
+    lcd_set_foreground(PICOCALC_PET_GREEN);
     lcd_set_background(BACKGROUND);
     lcd_enable_cursor(false);
     lcd_set_underscore(false);
@@ -372,7 +137,6 @@ void platform_init(void)
     lcd_scroll_reset();
     sleep_ms(250);
     lcd_clear_screen();
-    picocalc_status_row = picocalc_rows;
     picocalc_status_rows = ROWS - picocalc_status_row;
     picocalc_status_next_line = 0;
     picocalc_platform_initialised = true;
@@ -478,60 +242,89 @@ bool platform_poll_key(int *keycode, bool wait)
 
 void platform_screen_configure(int cols, int rows)
 {
-    int row;
-    int cleared_height;
-
     picocalc_cols = cols;
     picocalc_rows = rows;
-    picocalc_use_trs_font = (cols == 64 && rows == 16);
-
-    if (picocalc_use_trs_font) {
-        lcd_define_scrolling(0, 0);
-        lcd_scroll_reset();
-        picocalc_status_rows = (HEIGHT - picocalc_trs_pixel_height()) / GLYPH_HEIGHT;
-        if (picocalc_status_rows < 0) {
-            picocalc_status_rows = 0;
-        }
-        picocalc_status_row = ROWS - picocalc_status_rows;
-        cleared_height = picocalc_status_row * GLYPH_HEIGHT + PICOCALC_TRS_FONT_STATUS_GAP;
-        lcd_solid_rectangle(picocalc_trs_background(), 0, 0, WIDTH, (uint16_t)cleared_height);
-        picocalc_draw_status_divider();
-    } else {
-        picocalc_status_row = rows;
-        picocalc_status_rows = ROWS - picocalc_status_row;
-
-        for (row = 0; row < picocalc_rows && row < ROWS; ++row) {
-            picocalc_clear_line(row);
-        }
+    picocalc_status_row = rows;
+    if (cols == 40 && rows == 25) {
+        picocalc_status_row = (picocalc_pet_screen_pixel_height() +
+                               PET2001_LOGO_HEIGHT +
+                               PICOCALC_PET_FONT_HEIGHT - 1) /
+                              PICOCALC_PET_FONT_HEIGHT;
     }
+    picocalc_status_rows = ROWS - picocalc_status_row;
+    if (picocalc_status_rows < 0) {
+        picocalc_status_rows = 0;
+    }
+    picocalc_status_next_line = 0;
+
+    lcd_set_foreground(PICOCALC_PET_GREEN);
+    lcd_set_background(BACKGROUND);
+    lcd_clear_screen();
+    picocalc_draw_pet2001_logo();
 }
 
 void platform_screen_write_cell(int col, int row, uint8_t ch, uint8_t mode)
 {
     bool underscore;
 
-    (void)mode;
     if (col < 0 || col >= picocalc_cols || row < 0 || row >= picocalc_rows) {
         return;
     }
-
-    if (picocalc_use_trs_font) {
-        /* TRS rendering assumes absolute LCD coordinates; force a neutral scroll offset. */
-        lcd_scroll_reset();
-        picocalc_render_trs_cell(col, row, ch ? ch : ' ', mode);
-        return;
-    }
-
     if (col >= lcd_get_columns() || row >= ROWS) {
         return;
     }
 
-    underscore = (mode & PLATFORM_CELL_UNDERSCORE) != 0;
-    lcd_set_underscore(underscore);
-    lcd_putc((uint8_t)col, (uint8_t)row, ch ? ch : ' ');
-    if (underscore) {
-        lcd_set_underscore(false);
+    if (picocalc_cols == 40) {
+        picocalc_draw_font_cell8(col, row, ch ? ch : ' ', mode);
+    } else {
+        lcd_set_foreground(PICOCALC_PET_GREEN);
+        lcd_set_background(BACKGROUND);
+        underscore = (mode & PLATFORM_CELL_UNDERSCORE) != 0;
+        lcd_set_underscore(underscore);
+        lcd_putc((uint8_t)col, (uint8_t)row, ch ? ch : ' ');
+        if (underscore) {
+            lcd_set_underscore(false);
+        }
     }
+}
+
+void platform_screen_write_glyph8(int col, int row, const uint8_t glyph[8], uint8_t mode)
+{
+    static uint16_t pixels[PICOCALC_PET_CELL_WIDTH * PICOCALC_PET_CELL_HEIGHT]
+        __attribute__((aligned(4)));
+    bool reverse = (mode & PLATFORM_CELL_CURSOR) != 0;
+    bool underscore = (mode & PLATFORM_CELL_UNDERSCORE) != 0;
+    uint16_t foreground = PICOCALC_PET_GREEN;
+    uint16_t background = BACKGROUND;
+    int pixel_row;
+    int pixel_col;
+
+    if (glyph == NULL || col < 0 || col >= picocalc_cols || row < 0 || row >= picocalc_rows) {
+        return;
+    }
+
+    for (pixel_row = 0; pixel_row < PICOCALC_PET_CELL_HEIGHT; ++pixel_row) {
+        uint8_t bits = pixel_row < 8 ? glyph[pixel_row] : 0x00;
+
+        if (underscore && pixel_row == PICOCALC_PET_CELL_HEIGHT - 1) {
+            bits = 0xFF;
+        }
+        for (pixel_col = 0; pixel_col < PICOCALC_PET_CELL_WIDTH; ++pixel_col) {
+            bool on = (bits & (uint8_t)(0x80u >> pixel_col)) != 0;
+
+            if (reverse) {
+                on = !on;
+            }
+            pixels[pixel_row * PICOCALC_PET_CELL_WIDTH + pixel_col] =
+                on ? foreground : background;
+        }
+    }
+
+    lcd_blit(pixels,
+             (uint16_t)(col * PICOCALC_PET_CELL_WIDTH),
+             (uint16_t)(row * PICOCALC_PET_CELL_HEIGHT),
+             PICOCALC_PET_CELL_WIDTH,
+             PICOCALC_PET_CELL_HEIGHT);
 }
 
 void platform_screen_flush(void)
@@ -550,7 +343,6 @@ void platform_status_clear(void)
         picocalc_clear_line(picocalc_status_row + line);
     }
     picocalc_status_next_line = 0;
-    picocalc_operator_enabled = false;
 }
 
 void platform_status_puts(const char *text)
@@ -561,17 +353,8 @@ void platform_status_puts(const char *text)
         return;
     }
 
-    if (picocalc_operator_enabled) {
-        snprintf(picocalc_operator_transient, sizeof(picocalc_operator_transient),
-                 "%s", text);
-        picocalc_operator_transient_until_ms =
-            to_ms_since_boot(get_absolute_time()) + PICOCALC_STATUS_TRANSIENT_MS;
-        picocalc_render_operator_panel();
-        return;
-    }
-
     line = picocalc_status_row + picocalc_status_next_line;
-    picocalc_write_line(line, text);
+    picocalc_write_line(line, text, PICOCALC_STATUS_CYAN);
     picocalc_status_next_line = (picocalc_status_next_line + 1) % picocalc_status_rows;
 }
 
@@ -580,82 +363,40 @@ void platform_status_write_line(int line, const char *text)
     if (text == NULL || picocalc_status_rows <= 0) {
         return;
     }
-
     if (line < 0 || line >= picocalc_status_rows) {
         return;
     }
 
-    picocalc_write_line(picocalc_status_row + line, text);
+    picocalc_write_line(picocalc_status_row + line, text, PICOCALC_STATUS_CYAN);
 }
 
 void platform_status_set_operator_context(const char *rom_source, int rom_size,
                                           const char *disk0_path, bool disk0_present, bool disk0_write_protected,
                                           const char *disk1_path, bool disk1_present, bool disk1_write_protected)
 {
-    snprintf(picocalc_operator_rom_source, sizeof(picocalc_operator_rom_source),
-             "%s", (rom_source != NULL && rom_source[0] != '\0') ? rom_source : "--");
-    picocalc_operator_rom_size = rom_size;
-    (void)picocalc_operator_rom_size;
-
-    picocalc_operator_disks[0].present = disk0_present;
-    picocalc_operator_disks[0].write_protected = disk0_write_protected;
-    picocalc_operator_disks[0].active_until_ms = 0;
-    picocalc_copy_disk_label(picocalc_operator_disks[0].name,
-                             sizeof(picocalc_operator_disks[0].name), disk0_path);
-
-    picocalc_operator_disks[1].present = disk1_present;
-    picocalc_operator_disks[1].write_protected = disk1_write_protected;
-    picocalc_operator_disks[1].active_until_ms = 0;
-    picocalc_copy_disk_label(picocalc_operator_disks[1].name,
-                             sizeof(picocalc_operator_disks[1].name), disk1_path);
-
-    picocalc_operator_enabled = true;
-    picocalc_operator_transient[0] = '\0';
-    picocalc_operator_transient_until_ms = 0;
-    picocalc_render_operator_panel();
+    (void)rom_source;
+    (void)rom_size;
+    (void)disk0_path;
+    (void)disk0_present;
+    (void)disk0_write_protected;
+    (void)disk1_path;
+    (void)disk1_present;
+    (void)disk1_write_protected;
 }
 
 void platform_status_refresh_operator(uint16_t pc, float clock_mhz, bool audio_enabled,
                                       bool disk_sfx_enabled)
 {
-    if (!picocalc_operator_enabled) {
-        return;
-    }
-
-    picocalc_operator_last_pc = pc;
-    picocalc_operator_last_clock_mhz = clock_mhz;
-    picocalc_operator_last_audio_enabled = audio_enabled;
-    picocalc_operator_last_disk_sfx_enabled = disk_sfx_enabled;
-    picocalc_render_operator_panel();
+    (void)pc;
+    (void)clock_mhz;
+    (void)audio_enabled;
+    (void)disk_sfx_enabled;
 }
 
 void platform_set_disk_led(int drive, int on_off)
 {
-    if (drive < 0) {
-        int i;
-        for (i = 0; i < 2; ++i) {
-            picocalc_operator_disks[i].active_until_ms = 0;
-        }
-        picocalc_render_operator_panel();
-        return;
-    }
-
-    if (drive < 0 || drive >= 2) {
-        return;
-    }
-
-    if (on_off) {
-        uint32_t now_ms = to_ms_since_boot(get_absolute_time());
-        bool was_active = now_ms < picocalc_operator_disks[drive].active_until_ms;
-        picocalc_operator_disks[drive].active_until_ms =
-            now_ms + PICOCALC_DISK_ACTIVITY_MS;
-        if (was_active) {
-            return;
-        }
-    } else {
-        picocalc_operator_disks[drive].active_until_ms = 0;
-    }
-    picocalc_render_operator_panel();
+    (void)drive;
+    (void)on_off;
 }
 
 void platform_set_hard_led(int drive, int on_off)
@@ -711,7 +452,7 @@ static int picocalc_ascii_tolower(int ch)
     return ch;
 }
 
-static bool picocalc_disk_image_extension_allowed(const char *name)
+static bool picocalc_pet_program_extension_allowed(const char *name)
 {
     const char *dot;
     char ext[5];
@@ -731,13 +472,10 @@ static bool picocalc_disk_image_extension_allowed(const char *name)
     }
     ext[4] = '\0';
 
-    return strcmp(ext, ".dsk") == 0 ||
-           strcmp(ext, ".dmk") == 0 ||
-           strcmp(ext, ".jv1") == 0 ||
-           strcmp(ext, ".jv3") == 0;
+    return strcmp(ext, ".prg") == 0;
 }
 
-static int picocalc_disk_image_compare(const void *left, const void *right)
+static int picocalc_file_compare(const void *left, const void *right)
 {
     const platform_disk_image_t *left_image = left;
     const platform_disk_image_t *right_image = right;
@@ -788,7 +526,7 @@ int platform_list_disk_images(const char *dir_path, platform_disk_image_t *image
 
     while (fat32_dir_read(&dir, &entry) == FAT32_OK && entry.filename[0] != '\0') {
         if ((entry.attr & FAT32_ATTR_DIRECTORY) == 0 &&
-            picocalc_disk_image_extension_allowed(entry.filename)) {
+            picocalc_pet_program_extension_allowed(entry.filename)) {
             if (count < max_images) {
                 strncpy(images[count].name, entry.filename, PLATFORM_DISK_IMAGE_NAME_MAX - 1);
                 images[count].name[PLATFORM_DISK_IMAGE_NAME_MAX - 1] = '\0';
@@ -798,7 +536,7 @@ int platform_list_disk_images(const char *dir_path, platform_disk_image_t *image
     }
 
     fat32_close(&dir);
-    qsort(images, (size_t)count, sizeof(images[0]), picocalc_disk_image_compare);
+    qsort(images, (size_t)count, sizeof(images[0]), picocalc_file_compare);
     picocalc_last_file_error = FAT32_OK;
     return count;
 }

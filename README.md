@@ -1,114 +1,114 @@
-# PicoCalcTRS
+# PicoCalcPET
 
-TRS-80 Model III emulator firmware for the ClockworkPi PicoCalc with an RP2350 board.
+Commodore PET 2001 emulator firmware for the ClockworkPi PicoCalc with an RP2350 board.
 
-This project is planned as:
-
-- Firmware base: `picocalc-text-starter`
-- Emulator reference/core source: `sdltrs`
-- Target machine: TRS-80 Model III
-
-## Authorship and Acknowledgements
-
-PicoCalcTRS is a firmware port and integration work by Jean Pierre CORDEIRO.
-
-This project is built with gratitude to Blair Leduc, creator of [`picocalc-text-starter`](https://github.com/BlairLeduc/picocalc-text-starter), which provides the PicoCalc firmware foundation, and to Mark Grebe and Jens Guenther for [`sdltrs`](https://gitlab.com/jengun/sdltrs), which provides the TRS-80 emulator reference and core behavior used by this port.
-
-## Project Direction
-
-The PicoCalc starter gives us the embedded platform pieces we need:
-
-- text display output
-- keyboard input
-- SD card access
-- serial/debug access
-- Pico SDK project structure
-
-`sdltrs` gives us the TRS-80 emulation logic and hardware behavior we want to preserve:
-
-- Z80 CPU execution
-- TRS-80 Model III memory map
-- keyboard matrix behavior
-- video memory and character rendering rules
-- floppy/disk controller behavior
-- ROM boot expectations
-
-The important constraint is that `sdltrs` is a desktop emulator built around SDL and host OS facilities. On the PicoCalc, we will need to separate the emulation core from the desktop-facing layers and replace those layers with PicoCalc drivers.
+This repository is being brought up from the proven PicoCalcTRS firmware shape, but the target machine is now a 32K Commodore PET 2001-family machine. The current firmware boots PET ROMs on the PicoCalc using the VICE 6502 core with local PET memory, display, keyboard, PIA, and VIA glue.
 
 ## Current Status
 
-Current firmware status and functionality:
+Firmware bring-up status:
 
-- Model III ROM boot works from SD and embedded fallback.
-- Disk drives `:0` and `:1` are integrated.
-- LDOS/TRSDOS/BASIC core workflows are working in current on-device tests.
-- Build helper emits a stable UF2 in `dist/`.
-- Release and debug build profiles are both supported.
-- The firmware artifact is `PicoCalcTRS.uf2`.
-- SD-card ROM lookup uses `/TRS80/ROMS`.
-- SD-card disk lookup uses `/TRS80/DISKS`.
-- Startup includes a disk file picker for attaching images to D0 and D1, including `none`.
-- Disk image filenames are not special-cased; the picker attaches whichever listed image the user selects.
-- Regression guards ensure the old `disk0.*`/`disk1.*` filename probing does not return.
-- PicoCalc Esc maps to TRS BREAK; PicoCalc BRK (Shift+Esc) maps to the TRS reset button.
-- The SDL timing shim uses Pico SDK time so the Z80 throttle path can target real Model III speed.
-- Standard Model III cassette-port game sound is wired to the PicoCalc PWM audio driver, with rate-limited updates for timing-heavy games such as SCARFMAN.
-- Optional PCM-backed disk motor/track SFX is available with F4; F5 mutes audio.
-- Current M1 regression status: 29 automated checks passing, 0 failing.
+- firmware target/artifact name is `PicoCalcPET`
+- VICE 3.9 is vendored under `third_party/vice`
+- host builds do not require `sdltrs`
+- PET ROM lookup uses `/PET2001/ROMS`
+- host overrides support `PICOCALC_PET_ROM`, `PICOCALC_PET_BASIC_ROM`, `PICOCALC_PET_EDITOR_ROM`, `PICOCALC_PET_KERNAL_ROM`, and `PICOCALC_PET_CHAR_ROM`
+- the display shell is configured for 40 x 25 PET text
+- the emulated PET RAM is 32K at `$0000-$7FFF`
+- the operator panel reports normal PET ROM/RAM/keyboard/tape/PRG status
+- `F1` toggles debug status with PC, cycle, video, PIA/VIA, and last-I/O telemetry
+- the local core uses VICE `mos6510_regs_t` CPU register definitions
+- VICE `6510core.c` executes instructions through a local adapter
+- IRQ delivery is wired into the VICE CPU adapter
+- ROM bytes are loaded into PET memory regions and reset reads the kernal reset vector
+- 8K BASIC 1/2 images map at `$C000-$DFFF`; 12K BASIC 4 images map at `$B000-$DFFF`
+- PIA1, PIA2, and VIA register shells are present at `$E810`, `$E820`, and `$E840`
+- PIA1 keyboard row select/read behavior is implemented with an internal matrix
+- PicoCalc key events are mapped into the PET graphics-keyboard matrix
+- dirty video RAM cells are rendered to the PicoCalc text display
+- the firmware now runs a continuous PET CPU/video/status loop after ROM startup
+- PET BASIC ROM boot, screen output, and keyboard input have been verified on device
+- full PETSCII glyph mapping, tape/disk, and more accurate timer/CRTC behavior are still pending
 
 Expected SD-card layout:
 
 ```text
-/TRS80/ROMS/model3.rom
-/TRS80/ROMS/trs80m3.rom
-/TRS80/DISKS/ldos.dmk
-/TRS80/DISKS/games.dsk
+/PET2001/ROMS/basic1.bin
+/PET2001/ROMS/edit1.bin
+/PET2001/ROMS/kernal1.bin
+/PET2001/ROMS/characters.bin
 ```
 
-Disk images may also use `.dmk`, `.jv3`, or `.jv1`; uppercase extensions are accepted.
-Files whose names begin with `.` are hidden from the picker.
+BASIC 4 uses a matched split ROM profile:
 
-## Roadmap
+```text
+/PET2001/ROMS/basic4.bin
+/PET2001/ROMS/edit4.bin
+/PET2001/ROMS/kernal4.bin
+/PET2001/ROMS/characters.bin
+```
 
-Current project state:
+The firmware probes the complete BASIC 1 profile first, then the complete BASIC 4 profile. Do not mix `basic4.bin` with `edit1.bin` or `kernal1.bin`.
 
-1. first-release feature work is frozen
-2. usability/operator panel work is complete
-3. audio work is complete for first release
-4. remaining work is release-candidate validation and compatibility matrix filling
-5. post-release validation continues for broader game, video, and FDC image coverage
+A single combined image is also probed:
 
-Explicitly out of scope for this firmware target:
+```text
+/PET2001/ROMS/pet2001.rom
+```
 
-- cassette data I/O
-- printer support
-- RTC/date-time emulation
+The PRG picker lists `.prg` files found under:
 
-The detailed porting plan lives in [docs/porting-plan.md](/workspaces/PicoCalcTRS/docs/porting-plan.md).
+```text
+/PET2001/PRG
+```
 
-The vendor integration specification lives in [docs/vendor-integration.md](/workspaces/PicoCalcTRS/docs/vendor-integration.md).
+Press `F3` after BASIC reaches `READY.`, choose a program with Up/Down, press Enter to load, then type `RUN` and press Return. Esc cancels the picker.
 
-The vendor setup instructions live in [docs/vendor-setup.md](/workspaces/PicoCalcTRS/docs/vendor-setup.md).
+The virtual CBM disk device 8 uses one D64 image:
 
-The Pico SDK build notes live in [docs/pico-build.md](/workspaces/PicoCalcTRS/docs/pico-build.md).
+```text
+/PET2001/DISK/pet.d64
+```
 
-The release checklist lives in [docs/release-checklist.md](/workspaces/PicoCalcTRS/docs/release-checklist.md).
+`LOAD "NAME",8` and `SAVE "NAME",8` are trapped at the PET KERNAL boundary and map PRG files inside that D64 image. If the image does not exist, the first save creates a blank 35-track D64. This is file-level D64 support, not a full IEEE-488 drive CPU yet.
 
-The game compatibility matrix lives in [docs/game-compatibility.md](/workspaces/PicoCalcTRS/docs/game-compatibility.md).
+## Build
 
-The video fidelity checklist lives in [docs/video-fidelity-checklist.md](/workspaces/PicoCalcTRS/docs/video-fidelity-checklist.md).
+Host smoke build:
 
-The FDC soak checklist lives in [docs/fdc-soak-checklist.md](/workspaces/PicoCalcTRS/docs/fdc-soak-checklist.md).
+```sh
+cmake -S . -B build-host -DPICOCALC_PLATFORM=OFF
+cmake --build build-host -j"$(nproc)"
+./build-host/firmware/PicoCalcPET
+```
 
-The stable flash artifact produced by the helper script is [dist/PicoCalcTRS.uf2](/workspaces/PicoCalcTRS/dist/PicoCalcTRS.uf2).
+M1 regression:
 
-Build profile toggles (helper script env vars):
+```sh
+./scripts/regression-m1.sh
+```
 
-- default release (quiet): `./scripts/build-pico-uf2.sh`
-- enable FDC trace lines: `PICOCALC_ENABLE_FDC_DIAG=ON ./scripts/build-pico-uf2.sh`
-- enable fault diagnostics (`D2 E/W/U`, `DSK ...`): `PICOCALC_ENABLE_DISK_FAULT_DIAG=ON ./scripts/build-pico-uf2.sh`
+Pico UF2 builds require `third_party/picocalc-text-starter` and Pico SDK tooling:
 
-Vendor reference notes:
+```sh
+./scripts/build-pico-uf2.sh
+```
 
-- [docs/picocalc-text-starter.md](/workspaces/PicoCalcTRS/docs/picocalc-text-starter.md)
-- [docs/sdltrs.md](/workspaces/PicoCalcTRS/docs/sdltrs.md)
+The helper emits `dist/PicoCalcPET.uf2` when the Pico vendor/tooling tree is available.
+
+## Vendor Policy
+
+Vendor trees live under `third_party/` and should stay read-only. Local code lives under `firmware/`; unavoidable vendor edits belong under `patches/`.
+
+VICE is the PET behavior source under `third_party/vice`. The current build includes VICE CPU headers and keeps the executable core local while the VICE CPU/PET files are integrated behind the `pet2001_*` API.
+
+See [docs/vice-pet-integration.md](/workspaces/PicoCalcPET/docs/vice-pet-integration.md).
+
+## Next Milestones
+
+1. Refine PETSCII glyph mapping with a real PET font/character ROM renderer.
+2. Improve timer/CRTC behavior against VICE for software that depends on tighter timing.
+3. Expand keyboard coverage for every PicoCalc symbol/modifier.
+4. Add optional tape/disk support.
+
+The detailed implementation spec lives in [docs/pet2001-codex-spec.md](/workspaces/PicoCalcPET/docs/pet2001-codex-spec.md).

@@ -1,10 +1,12 @@
 #include "platform.h"
 
 #include <stdbool.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <strings.h>
 
 typedef struct {
     uint8_t ch;
@@ -55,6 +57,12 @@ void platform_screen_write_cell(int col, int row, uint8_t ch, uint8_t mode)
     host_screen[index].ch = ch;
     host_screen[index].mode = mode;
     host_dirty = true;
+}
+
+void platform_screen_write_glyph8(int col, int row, const uint8_t glyph[8], uint8_t mode)
+{
+    (void)glyph;
+    platform_screen_write_cell(col, row, '#', mode);
 }
 
 void platform_screen_flush(void)
@@ -146,12 +154,40 @@ bool platform_file_exists(const char *path)
 
 int platform_list_disk_images(const char *dir_path, platform_disk_image_t *images, int max_images)
 {
-    (void)dir_path;
-    (void)images;
-    (void)max_images;
-    host_last_file_error = -3;
-    host_last_file_error_text = "host disk picker unavailable";
-    return -1;
+    DIR *dir;
+    struct dirent *entry;
+    int count = 0;
+
+    if (dir_path == NULL || images == NULL || max_images <= 0) {
+        host_last_file_error = -1;
+        host_last_file_error_text = "invalid parameter";
+        return -1;
+    }
+
+    dir = opendir(dir_path);
+    if (dir == NULL) {
+        host_last_file_error = -3;
+        host_last_file_error_text = "host opendir failed";
+        return -1;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        const char *dot = strrchr(entry->d_name, '.');
+
+        if (dot == NULL || strcasecmp(dot, ".prg") != 0) {
+            continue;
+        }
+        if (count < max_images) {
+            strncpy(images[count].name, entry->d_name, PLATFORM_DISK_IMAGE_NAME_MAX - 1);
+            images[count].name[PLATFORM_DISK_IMAGE_NAME_MAX - 1] = '\0';
+            count++;
+        }
+    }
+
+    closedir(dir);
+    host_last_file_error = 0;
+    host_last_file_error_text = "ok";
+    return count;
 }
 
 int platform_last_file_error_code(void)

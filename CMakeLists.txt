@@ -12,25 +12,21 @@ if(PICOCALC_PLATFORM)
     include(${CMAKE_CURRENT_SOURCE_DIR}/third_party/picocalc-text-starter/pico_sdk_import.cmake)
 endif()
 
-project(PicoCalcTRS C CXX ASM)
+project(PicoCalcPET C CXX ASM)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(PICOCALC_TEXT_STARTER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/picocalc-text-starter")
-set(SDLTRS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/sdltrs")
+set(VICE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/vice")
 
-message(STATUS "Configuring PicoCalcTRS")
+message(STATUS "Configuring PicoCalcPET")
 message(STATUS "picocalc-text-starter: ${PICOCALC_TEXT_STARTER_DIR}")
-message(STATUS "sdltrs: ${SDLTRS_DIR}")
+message(STATUS "vice: ${VICE_DIR}")
 
-if(NOT EXISTS "${PICOCALC_TEXT_STARTER_DIR}/CMakeLists.txt")
+if(PICOCALC_PLATFORM AND NOT EXISTS "${PICOCALC_TEXT_STARTER_DIR}/CMakeLists.txt")
     message(FATAL_ERROR "Missing vendor tree: third_party/picocalc-text-starter")
-endif()
-
-if(NOT EXISTS "${SDLTRS_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR "Missing vendor tree: third_party/sdltrs")
 endif()
 
 add_subdirectory(firmware)

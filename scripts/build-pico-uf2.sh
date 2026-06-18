@@ -9,11 +9,14 @@ PICOTOOL_SRC_DIR="${PICOTOOL_SRC_DIR:-/tmp/picotool}"
 PICOTOOL_INSTALL_DIR="${PICOTOOL_INSTALL_DIR:-/tmp/picotool/install}"
 BUILD_DIR="${BUILD_DIR:-${REPO_ROOT}/build-pico-uf2}"
 DIST_DIR="${DIST_DIR:-${REPO_ROOT}/dist}"
-PICOCALC_ENABLE_FDC_DIAG="${PICOCALC_ENABLE_FDC_DIAG:-OFF}"
-PICOCALC_ENABLE_DISK_FAULT_DIAG="${PICOCALC_ENABLE_DISK_FAULT_DIAG:-OFF}"
 
 if [[ ! -d "${PICO_SDK_PATH}" ]]; then
     echo "error: PICO_SDK_PATH does not exist: ${PICO_SDK_PATH}" >&2
+    exit 1
+fi
+
+if [[ ! -f "${REPO_ROOT}/third_party/picocalc-text-starter/CMakeLists.txt" ]]; then
+    echo "error: missing vendor tree: third_party/picocalc-text-starter" >&2
     exit 1
 fi
 
@@ -42,18 +45,16 @@ export PATH="${PICOTOOL_INSTALL_DIR}/bin:${PATH}"
 cmake -S "${REPO_ROOT}" \
     -B "${BUILD_DIR}" \
     -DPICOCALC_PLATFORM=ON \
-    -DPICOCALC_ENABLE_FDC_DIAG="${PICOCALC_ENABLE_FDC_DIAG}" \
-    -DPICOCALC_ENABLE_DISK_FAULT_DIAG="${PICOCALC_ENABLE_DISK_FAULT_DIAG}" \
     -DPICO_NO_PICOTOOL=0 \
     -Dpicotool_DIR="${PICOTOOL_INSTALL_DIR}/lib/cmake/picotool"
 
 cmake --build "${BUILD_DIR}" -j"$(nproc)"
 
 mkdir -p "${DIST_DIR}"
-cp "${BUILD_DIR}/firmware/PicoCalcTRS.uf2" "${DIST_DIR}/PicoCalcTRS.uf2"
+cp "${BUILD_DIR}/firmware/PicoCalcPET.uf2" "${DIST_DIR}/PicoCalcPET.uf2"
 
 echo
 echo "UF2 build complete:"
-echo "  ${BUILD_DIR}/firmware/PicoCalcTRS.uf2"
+echo "  ${BUILD_DIR}/firmware/PicoCalcPET.uf2"
 echo "Stable copy:"
-echo "  ${DIST_DIR}/PicoCalcTRS.uf2"
+echo "  ${DIST_DIR}/PicoCalcPET.uf2"

@@ -1,94 +1,26 @@
+#include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
 
-#include "trs.h"
-#include "trs_disk.h"
-#include "z80.h"
+#include "emu/pet2001.h"
+#include "frontend/pet_frontend.h"
 #include "platform/platform.h"
 #include "platform/platform_file.h"
-#include "emu/picocalc_reset_policy.h"
 
 extern const char *program_name;
 
-#define PICOCALC_TRS_ROM_DIR "/TRS80/ROMS"
-#define PICOCALC_TRS_DISK_DIR "/TRS80/DISKS"
-#define PICOCALC_DISK_PICKER_MAX_IMAGES 64
-#define PICOCALC_DISK_PICKER_VISIBLE_ROWS 8
+#define PICOCALC_PET_ROM_DIR "/PET2001/ROMS"
+#define PICOCALC_PET_PRG_DIR "/PET2001/PRG"
+#define PICOCALC_PET_QUICK_SAVE_PATH PICOCALC_PET_PRG_DIR "/SAVED.PRG"
+#define PICOCALC_PET_FRAME_CYCLES 16667u
 
-static void write_line_centered(int row, const char *text)
-{
-    size_t len;
-    int col;
-    size_t i;
-
-    if (text == NULL) {
-        return;
-    }
-
-    len = strlen(text);
-    if (len > 64) {
-        len = 64;
-    }
-
-    col = (64 - (int)len) / 2;
-    if (col < 0) {
-        col = 0;
-    }
-
-    for (i = 0; i < len; ++i) {
-        platform_screen_write_cell(col + (int)i, row, (uint8_t)text[i], 0);
-    }
-}
-
-static void write_line(int row, const char *text)
-{
-    size_t i;
-
-    if (text == NULL) {
-        return;
-    }
-
-    for (i = 0; text[i] != '\0' && i < 64; ++i) {
-        platform_screen_write_cell((int)i, row, (uint8_t)text[i], 0);
-    }
-}
-
-static void clear_line_cells(int row)
-{
-    int col;
-
-    for (col = 0; col < 64; ++col) {
-        platform_screen_write_cell(col, row, ' ', 0);
-    }
-}
-
-static void clear_screen_cells(void)
-{
-    int row;
-
-    for (row = 0; row < 16; ++row) {
-        clear_line_cells(row);
-    }
-}
-
-static void show_boot_banner(void)
-{
-    clear_line_cells(2);
-    write_line_centered(2, "PicoCalc TRS-80 Model III");
-}
-
-static void show_boot_stage(const char *text)
-{
-    clear_line_cells(4);
-    write_line_centered(4, text);
-    platform_screen_flush();
-}
+static bool pet_debug_status;
 
 static void status_printf(const char *format, ...)
 {
-    char buffer[65];
+    char buffer[96];
     va_list args;
 
     va_start(args, format);
@@ -97,7 +29,7 @@ static void status_printf(const char *format, ...)
     platform_status_puts(buffer);
 }
 
-static const char *status_leaf_name(const char *path)
+static const char *path_leaf_name(const char *path)
 {
     const char *cursor;
     const char *leaf;
@@ -116,390 +48,389 @@ static const char *status_leaf_name(const char *path)
     return (leaf[0] != '\0') ? leaf : path;
 }
 
-static void show_runtime_status(bool disk0_found, const char *disk0_path,
-                                bool disk1_found, const char *disk1_path)
+static bool copy_env_path(const char *env_name, char *buffer, size_t buffer_size)
 {
-    const char *rom_label;
-
-    rom_label = (strncmp(romfile3, "embedded:", 9) == 0) ? "EMB" : "SD";
-
-    platform_status_clear();
-    platform_status_set_operator_context(rom_label, trs_rom_size,
-                                         disk0_path, disk0_found,
-                                         disk0_found && trs_disk_getwriteprotect(0),
-                                         disk1_path, disk1_found,
-                                         disk1_found && trs_disk_getwriteprotect(1));
-    platform_status_refresh_operator((uint16_t)Z80_PC, z80_state.clockMHz,
-                                     trs_sound != 0, false);
-}
-
-static void show_missing_rom_screen(void)
-{
-    char detail[65];
-    char detect[65];
-    bool sd_present;
-
-    sd_present = platform_sd_card_present();
-    platform_screen_configure(64, 16);
-    write_line_centered(1, "TRS-80 Model III ROM Missing");
-    if (sd_present) {
-        write_line_centered(4, "Copy one ROM file to SD:");
-        write_line_centered(6, PICOCALC_TRS_ROM_DIR "/model3.rom");
-        write_line_centered(8, "Also accepted:");
-        write_line_centered(9, PICOCALC_TRS_ROM_DIR "/trs80m3.rom");
-    } else {
-        write_line_centered(4, "Insert an SD card with:");
-        write_line_centered(6, PICOCALC_TRS_ROM_DIR "/model3.rom");
-        write_line_centered(8, "or rebuild with embedded ROM support.");
-    }
-    snprintf(detect, sizeof(detect), "SD detect: gpio=%d present=%d",
-             platform_sd_detect_state(),
-             sd_present ? 1 : 0);
-    snprintf(detail, sizeof(detail), "Last probe: %s (%d)",
-             platform_last_file_error(),
-             platform_last_file_error_code());
-    write_line(12, detect);
-    write_line(13, detail);
-    write_line_centered(15, "Power cycle after fixing ROM.");
-    platform_screen_flush();
-}
-
-static bool select_model3_rom_path(int argc, char **argv)
-{
-    static const char *candidate_paths[] = {
-        PICOCALC_TRS_ROM_DIR "/model3.rom",
-        PICOCALC_TRS_ROM_DIR "/trs80m3.rom"
-    };
     const char *env_path;
-    size_t i;
 
-    romfile3[0] = '\0';
-
-    if (argc > 1) {
-        strncpy(romfile3, argv[1], FILENAME_MAX - 1);
-        romfile3[FILENAME_MAX - 1] = '\0';
-        return platform_file_exists(romfile3);
+    env_path = getenv(env_name);
+    if (env_path == NULL || env_path[0] == '\0') {
+        return false;
     }
 
-    env_path = getenv("PICOCALC_TRS_ROM");
-    if (env_path != NULL && env_path[0] != '\0') {
-        strncpy(romfile3, env_path, FILENAME_MAX - 1);
-        romfile3[FILENAME_MAX - 1] = '\0';
-        return platform_file_exists(romfile3);
-    }
+    strncpy(buffer, env_path, buffer_size - 1);
+    buffer[buffer_size - 1] = '\0';
+    return platform_file_exists(buffer);
+}
 
-    for (i = 0; i < (sizeof(candidate_paths) / sizeof(candidate_paths[0])); ++i) {
-        if (platform_file_exists(candidate_paths[i])) {
-            strncpy(romfile3, candidate_paths[i], FILENAME_MAX - 1);
-            romfile3[FILENAME_MAX - 1] = '\0';
+static void set_rom_path(char *buffer, size_t buffer_size, const char *filename)
+{
+    snprintf(buffer, buffer_size, PICOCALC_PET_ROM_DIR "/%s", filename);
+}
+
+static void set_split_rom_profile(pet2001_rom_paths_t *paths, const char *basic,
+                                  const char *editor, const char *kernal,
+                                  pet2001_keyboard_layout_t keyboard_layout)
+{
+    set_rom_path(paths->basic, sizeof(paths->basic), basic);
+    set_rom_path(paths->editor, sizeof(paths->editor), editor);
+    set_rom_path(paths->kernal, sizeof(paths->kernal), kernal);
+    set_rom_path(paths->characters, sizeof(paths->characters), "characters.bin");
+    paths->keyboard_layout = keyboard_layout;
+}
+
+static bool split_rom_profile_exists(const pet2001_rom_paths_t *paths)
+{
+    return platform_file_exists(paths->basic) &&
+           platform_file_exists(paths->editor) &&
+           platform_file_exists(paths->kernal) &&
+           platform_file_exists(paths->characters);
+}
+
+static bool select_pet_rom_paths(int argc, char **argv, pet2001_rom_paths_t *paths)
+{
+    bool have_combined;
+    bool have_env_split;
+
+    memset(paths, 0, sizeof(*paths));
+
+    if (argc > 1 && argv[1][0] != '\0') {
+        strncpy(paths->combined, argv[1], sizeof(paths->combined) - 1);
+        have_combined = platform_file_exists(paths->combined);
+        if (have_combined) {
             return true;
         }
     }
 
-    if (platform_embedded_model3_rom_available()) {
-        strncpy(romfile3, "embedded:model3.rom", FILENAME_MAX - 1);
-        romfile3[FILENAME_MAX - 1] = '\0';
+    have_combined = copy_env_path("PICOCALC_PET_ROM", paths->combined,
+                                  sizeof(paths->combined));
+    if (!have_combined) {
+        snprintf(paths->combined, sizeof(paths->combined),
+                 PICOCALC_PET_ROM_DIR "/pet2001.rom");
+        have_combined = platform_file_exists(paths->combined);
+    }
+    if (have_combined) {
+        return true;
+    }
+    paths->combined[0] = '\0';
+
+    copy_env_path("PICOCALC_PET_BASIC_ROM", paths->basic, sizeof(paths->basic));
+    copy_env_path("PICOCALC_PET_EDITOR_ROM", paths->editor, sizeof(paths->editor));
+    copy_env_path("PICOCALC_PET_KERNAL_ROM", paths->kernal, sizeof(paths->kernal));
+    copy_env_path("PICOCALC_PET_CHAR_ROM", paths->characters, sizeof(paths->characters));
+
+    have_env_split = paths->basic[0] != '\0' ||
+                     paths->editor[0] != '\0' ||
+                     paths->kernal[0] != '\0' ||
+                     paths->characters[0] != '\0';
+    if (have_env_split) {
+        if (paths->characters[0] == '\0') {
+            set_rom_path(paths->characters, sizeof(paths->characters), "characters.bin");
+        }
+        paths->keyboard_layout = strstr(path_leaf_name(paths->basic), "basic4") != NULL
+                                      ? PET2001_KEYBOARD_BUSINESS
+                                      : PET2001_KEYBOARD_GRAPHICS;
+        return split_rom_profile_exists(paths);
+    }
+
+    set_split_rom_profile(paths, "basic1.bin", "edit1.bin", "kernal1.bin",
+                          PET2001_KEYBOARD_GRAPHICS);
+    if (split_rom_profile_exists(paths)) {
         return true;
     }
 
-    strncpy(romfile3, candidate_paths[0], FILENAME_MAX - 1);
-    romfile3[FILENAME_MAX - 1] = '\0';
+    set_split_rom_profile(paths, "basic4.bin", "edit4.bin", "kernal4.bin",
+                          PET2001_KEYBOARD_BUSINESS);
+    if (split_rom_profile_exists(paths)) {
+        return true;
+    }
+
     return false;
 }
 
-static bool select_disk_path(int argc, char **argv, int drive,
-                             char *buffer, size_t buffer_size)
+static void mark_pet_video_dirty(pet2001_t *pet)
 {
-    const char *env_name;
-    const char *env_path;
-    int arg_index;
-
-    if (buffer == NULL || buffer_size == 0) {
-        return false;
+    if (pet != NULL) {
+        memset(pet->video_dirty, true, sizeof(pet->video_dirty));
     }
-
-    buffer[0] = '\0';
-
-    arg_index = 2 + drive;
-    if (argc > arg_index && argv[arg_index][0] != '\0') {
-        strncpy(buffer, argv[arg_index], buffer_size - 1);
-        buffer[buffer_size - 1] = '\0';
-        return true;
-    }
-
-    env_name = (drive == 0) ? "PICOCALC_TRS_DISK0" : "PICOCALC_TRS_DISK1";
-    env_path = getenv(env_name);
-    if (env_path != NULL && env_path[0] != '\0') {
-        strncpy(buffer, env_path, buffer_size - 1);
-        buffer[buffer_size - 1] = '\0';
-        return true;
-    }
-
-    return false;
 }
 
-static void build_disk_image_path(const char *name, char *buffer, size_t buffer_size)
+static void draw_prg_picker(const platform_disk_image_t *programs, int count,
+                            int selected, int top)
 {
-    if (buffer == NULL || buffer_size == 0) {
-        return;
-    }
-
-    if (name == NULL || name[0] == '\0') {
-        buffer[0] = '\0';
-        return;
-    }
-
-    snprintf(buffer, buffer_size, PICOCALC_TRS_DISK_DIR "/%s", name);
-}
-
-static void draw_disk_picker(int drive, const platform_disk_image_t *images,
-                             int image_count, int selected, int top,
-                             int list_error)
-{
-    char line[65];
+    char line[PET_FRONTEND_COLS + 1];
     int row;
-    int index;
 
-    clear_screen_cells();
-    snprintf(line, sizeof(line), "D%d Disk Image", drive);
-    write_line_centered(1, line);
-    write_line_centered(2, PICOCALC_TRS_DISK_DIR);
-    write_line_centered(3, "Sorted .DSK .DMK .JV1 .JV3");
+    pet_frontend_clear();
+    pet_frontend_write_centered(0, "Select PET PRG");
+    pet_frontend_write_centered(23, "UP/DOWN ENTER=LOAD ESC=CANCEL");
 
-    if (list_error) {
-        snprintf(line, sizeof(line), "Directory unavailable: %.40s",
-                 platform_last_file_error());
-        write_line(4, line);
-    } else if (image_count == 0) {
-        write_line_centered(4, "No disk images found; Enter selects none");
-    } else {
-        snprintf(line, sizeof(line), "%d image%s available",
-                 image_count, image_count == 1 ? "" : "s");
-        write_line_centered(4, line);
-    }
+    for (row = 0; row < 20; ++row) {
+        int index = top + row;
 
-    for (row = 0; row < PICOCALC_DISK_PICKER_VISIBLE_ROWS; ++row) {
-        index = top + row;
-        if (index > image_count) {
+        if (index >= count) {
             break;
         }
-
-        if (index == 0) {
-            snprintf(line, sizeof(line), "%c [none] leave D%d empty",
-                     selected == index ? '>' : ' ', drive);
-        } else {
-            snprintf(line, sizeof(line), "%c %-3d %s",
-                     selected == index ? '>' : ' ',
-                     index,
-                     images[index - 1].name);
-        }
-        write_line(5 + row, line);
+        snprintf(line, sizeof(line), "%c %-36.36s",
+                 index == selected ? '>' : ' ',
+                 programs[index].name);
+        pet_frontend_write_line(row + 2, line);
     }
-
-    write_line_centered(14, "Up/Down choose  Enter attach  N none  Esc skip");
-    write_line_centered(15, "Home/End and PgUp/PgDn move faster");
-    platform_screen_flush();
+    pet_frontend_flush();
 }
 
-static bool run_disk_picker_for_drive(int drive, const platform_disk_image_t *images,
-                                      int image_count, int list_error,
-                                      char *buffer, size_t buffer_size)
+static int pick_prg(platform_disk_image_t *programs, int count)
 {
-    int selected;
+    int selected = 0;
     int top = 0;
-    int key;
-    int max_selection = image_count;
 
-    if (buffer == NULL || buffer_size == 0) {
-        return false;
+    if (programs == NULL || count <= 0) {
+        return -1;
     }
 
-    selected = (image_count > 0) ? 1 : 0;
-
+    draw_prg_picker(programs, count, selected, top);
     for (;;) {
-        if (selected < top) {
-            top = selected;
-        } else if (selected >= top + PICOCALC_DISK_PICKER_VISIBLE_ROWS) {
-            top = selected - PICOCALC_DISK_PICKER_VISIBLE_ROWS + 1;
-        }
+        int key = PLATFORM_KEY_NONE;
 
-        draw_disk_picker(drive, images, image_count, selected, top, list_error);
         if (!platform_poll_key(&key, true)) {
             continue;
         }
 
-        switch (key) {
-        case PLATFORM_KEY_UP:
-            if (selected > 0) {
-                selected--;
+        if (key == PLATFORM_KEY_ESC || key == PLATFORM_KEY_BREAK) {
+            return -1;
+        }
+        if (key == PLATFORM_KEY_ENTER) {
+            return selected;
+        }
+        if (key == PLATFORM_KEY_UP && selected > 0) {
+            selected--;
+            if (selected < top) {
+                top = selected;
             }
-            break;
-        case PLATFORM_KEY_DOWN:
-            if (selected < max_selection) {
-                selected++;
+            draw_prg_picker(programs, count, selected, top);
+        } else if (key == PLATFORM_KEY_DOWN && selected + 1 < count) {
+            selected++;
+            if (selected >= top + 20) {
+                top = selected - 19;
             }
-            break;
-        case PLATFORM_KEY_PAGE_UP:
-            selected -= PICOCALC_DISK_PICKER_VISIBLE_ROWS;
-            if (selected < 0) {
-                selected = 0;
-            }
-            break;
-        case PLATFORM_KEY_PAGE_DOWN:
-            selected += PICOCALC_DISK_PICKER_VISIBLE_ROWS;
-            if (selected > max_selection) {
-                selected = max_selection;
-            }
-            break;
-        case PLATFORM_KEY_HOME:
-            selected = 0;
-            break;
-        case PLATFORM_KEY_END:
-            selected = max_selection;
-            break;
-        case PLATFORM_KEY_ENTER:
-            if (selected == 0) {
-                buffer[0] = '\0';
-                return false;
-            }
-            build_disk_image_path(images[selected - 1].name, buffer, buffer_size);
-            return true;
-        case 'n':
-        case 'N':
-        case '0':
-        case PLATFORM_KEY_BACKSPACE:
-        case PLATFORM_KEY_ESC:
-            buffer[0] = '\0';
-            return false;
-        default:
-            break;
+            draw_prg_picker(programs, count, selected, top);
         }
     }
 }
 
-static void run_disk_picker(char *disk0_path, size_t disk0_path_size,
-                            char *disk1_path, size_t disk1_path_size,
-                            bool *disk0_found, bool *disk1_found)
+static bool load_prg_from_picker(pet2001_t *pet)
 {
-    platform_disk_image_t images[PICOCALC_DISK_PICKER_MAX_IMAGES];
-    int image_count;
-    int list_error = 0;
+    platform_disk_image_t programs[64];
+    char path[FILENAME_MAX];
+    int count;
+    int selected;
 
-    show_boot_stage("Reading disk directory...");
-    image_count = platform_list_disk_images(PICOCALC_TRS_DISK_DIR, images,
-                                            PICOCALC_DISK_PICKER_MAX_IMAGES);
-    if (image_count < 0) {
-        image_count = 0;
-        list_error = 1;
+    if (pet == NULL) {
+        return false;
     }
 
-    *disk0_found = run_disk_picker_for_drive(0, images, image_count, list_error,
-                                             disk0_path, disk0_path_size);
-    if (*disk0_found) {
-        status_printf("Boot: D0 selected %s", status_leaf_name(disk0_path));
-    } else {
-        platform_status_puts("Boot: D0 none");
+    count = platform_list_disk_images(PICOCALC_PET_PRG_DIR, programs,
+                                      (int)(sizeof(programs) / sizeof(programs[0])));
+    if (count <= 0) {
+        pet_frontend_refresh_status(pet, "no PRG in /PET2001/PRG");
+        return false;
     }
-    *disk1_found = run_disk_picker_for_drive(1, images, image_count, list_error,
-                                             disk1_path, disk1_path_size);
-    if (*disk1_found) {
-        status_printf("Boot: D1 selected %s", status_leaf_name(disk1_path));
+
+    selected = pick_prg(programs, count);
+    pet_frontend_clear();
+    mark_pet_video_dirty(pet);
+    pet_frontend_render_video(pet);
+    if (selected < 0) {
+        pet_frontend_refresh_status(pet, "PRG load cancelled");
+        return false;
+    }
+
+    snprintf(path, sizeof(path), PICOCALC_PET_PRG_DIR "/%s", programs[selected].name);
+    if (!pet2001_load_prg(pet, path)) {
+        pet_frontend_refresh_status(pet,
+                                    pet->last_error[0] != '\0' ? pet->last_error
+                                                               : "PRG load failed");
+        return false;
+    }
+
+    snprintf(path, sizeof(path), "loaded %.31s", programs[selected].name);
+    pet_frontend_refresh_status(pet, path);
+    return true;
+}
+
+static bool save_prg_snapshot(pet2001_t *pet)
+{
+    char message[PET_FRONTEND_COLS + 1];
+
+    if (pet == NULL) {
+        return false;
+    }
+
+    if (!pet2001_save_prg(pet, PICOCALC_PET_QUICK_SAVE_PATH)) {
+        pet_frontend_refresh_status(pet,
+                                    pet->last_error[0] != '\0' ? pet->last_error
+                                                               : "PRG save failed");
+        return false;
+    }
+
+    snprintf(message, sizeof(message), "saved SAVED.PRG %04X-%04X",
+             pet->last_prg_start, pet->last_prg_end);
+    pet_frontend_refresh_status(pet, message);
+    return true;
+}
+
+static void show_missing_rom_screen(const pet2001_rom_paths_t *paths)
+{
+    char detail[96];
+    char detect[96];
+    bool sd_present;
+
+    sd_present = platform_sd_card_present();
+    pet_frontend_clear();
+    pet_frontend_write_centered(1, "PET 2001 ROM Missing");
+    if (sd_present) {
+        pet_frontend_write_centered(4, "Copy ROM files to SD:");
     } else {
-        platform_status_puts("Boot: D1 none");
+        pet_frontend_write_centered(4, "Insert an SD card with:");
+    }
+    pet_frontend_write_line(6, paths->basic);
+    pet_frontend_write_line(7, paths->editor);
+    pet_frontend_write_line(8, paths->kernal);
+    pet_frontend_write_line(9, paths->characters);
+    pet_frontend_write_centered(11, "BASIC 4 uses basic4/edit4/kernal4");
+    pet_frontend_write_centered(12, "or provide one combined image:");
+    pet_frontend_write_line(13, paths->combined);
+    snprintf(detect, sizeof(detect), "SD detect: gpio=%d present=%d",
+             platform_sd_detect_state(), sd_present ? 1 : 0);
+    snprintf(detail, sizeof(detail), "Last probe: %s (%d)",
+             platform_last_file_error(), platform_last_file_error_code());
+    pet_frontend_write_line(14, detect);
+    pet_frontend_write_line(15, detail);
+    pet_frontend_status_line(0, "PET2001 1.00MHz ROM:missing RAM:32K");
+    pet_frontend_status_line(1, "KBD:ready TAPE:none PRG:none");
+    pet_frontend_status_line(2, "Place ROMs under /PET2001/ROMS");
+    pet_frontend_flush();
+}
+
+static void run_pet_loop(pet2001_t *pet)
+{
+    uint32_t frame = 0;
+
+    if (pet == NULL) {
+        return;
+    }
+
+    for (;;) {
+        int key = PLATFORM_KEY_NONE;
+
+        while (platform_poll_key(&key, false)) {
+            if (key == PLATFORM_KEY_BREAK) {
+                pet2001_reset(pet);
+                pet_frontend_clear();
+                if (pet_debug_status) {
+                    pet_frontend_refresh_debug_status(pet);
+                } else {
+                    pet_frontend_refresh_status(pet, "reset");
+                }
+            } else if (key == PLATFORM_KEY_F1) {
+                pet_debug_status = !pet_debug_status;
+                if (pet_debug_status) {
+                    pet_frontend_refresh_debug_status(pet);
+                } else {
+                    pet_frontend_refresh_status(pet, "running ROM");
+                }
+            } else if (key == PLATFORM_KEY_F2) {
+                char message[40];
+                pet2001_toggle_keyboard_layout(pet);
+                snprintf(message, sizeof(message), "keyboard:%s",
+                         pet2001_keyboard_layout_name(pet));
+                pet_frontend_refresh_status(pet, message);
+            } else if (key == PLATFORM_KEY_F3) {
+                load_prg_from_picker(pet);
+            } else if (key == PLATFORM_KEY_F4) {
+                save_prg_snapshot(pet);
+            } else {
+                pet2001_key_event(pet, key, true);
+            }
+        }
+
+        pet2001_run_frame(pet);
+        pet_frontend_render_video(pet);
+
+        if ((frame & 0x03u) == 0) {
+            if (pet_debug_status) {
+                pet_frontend_refresh_debug_status(pet);
+            } else if (pet->video_writes == 0) {
+                pet_frontend_refresh_status(pet, "running ROM; no video writes yet");
+            } else {
+                pet_frontend_refresh_status(pet, "running ROM");
+            }
+        }
+        pet_frontend_flush();
+        frame++;
+
+#ifndef PICOCALC_PLATFORM
+        if (frame >= 60) {
+            break;
+        }
+#endif
     }
 }
 
 int main(int argc, char **argv)
 {
-    char disk0_path[FILENAME_MAX];
-    char disk1_path[FILENAME_MAX];
+    pet2001_t pet;
+    pet2001_rom_paths_t rom_paths;
     bool sd_present;
     bool rom_found;
-    bool disk0_found;
-    bool disk1_found;
-    bool disk_args_used = false;
 
-    program_name = "PicoCalcTRS";
+    program_name = "PicoCalcPET";
 
-    trs_model = 3;
-    trs_sdl_init();
-    platform_status_clear();
-    show_boot_banner();
-    show_boot_stage("Initializing firmware...");
+    platform_init();
+    pet_frontend_init();
+    pet_frontend_show_boot_banner();
     platform_status_puts("Boot: display+input ready");
-    disk0_path[0] = '\0';
-    disk1_path[0] = '\0';
 
-    show_boot_stage("Checking SD card...");
+    pet_frontend_show_boot_stage("Checking SD card...");
     sd_present = platform_sd_card_present();
     status_printf("Boot: SD card %s", sd_present ? "present" : "absent");
 
-    if (!sd_present) {
-        show_boot_stage("No SD card: embedded boot");
-        disk0_found = false;
-        disk1_found = false;
-        if (platform_embedded_model3_rom_available()) {
-            strncpy(romfile3, "embedded:model3.rom", FILENAME_MAX - 1);
-            romfile3[FILENAME_MAX - 1] = '\0';
-            rom_found = true;
-            platform_status_puts("Boot: using embedded ROM");
-        } else {
-            romfile3[0] = '\0';
-            rom_found = false;
-            platform_status_puts("Boot: embedded ROM missing");
-        }
-    } else {
-        show_boot_stage("Probing ROM...");
-        platform_status_puts("Boot: probing ROM");
-        rom_found = select_model3_rom_path(argc, argv);
-        if (rom_found) {
-            status_printf("Boot: ROM %s", status_leaf_name(romfile3));
-        } else {
-            platform_status_puts("Boot: ROM not found");
-        }
-
-        show_boot_stage("Probing disks...");
-        if (argc > 2 || getenv("PICOCALC_TRS_DISK0") != NULL ||
-            getenv("PICOCALC_TRS_DISK1") != NULL) {
-            disk0_found = select_disk_path(argc, argv, 0, disk0_path, sizeof(disk0_path));
-            disk1_found = select_disk_path(argc, argv, 1, disk1_path, sizeof(disk1_path));
-            disk_args_used = true;
-        } else {
-            run_disk_picker(disk0_path, sizeof(disk0_path),
-                            disk1_path, sizeof(disk1_path),
-                            &disk0_found, &disk1_found);
-        }
-        if (disk_args_used) {
-            platform_status_puts("Boot: disks from args/env");
-        }
-        status_printf("Boot: D0:%c D1:%c", disk0_found ? 'Y' : 'N', disk1_found ? 'Y' : 'N');
-    }
+    pet_frontend_show_boot_stage("Probing PET ROMs...");
+    rom_found = select_pet_rom_paths(argc, argv, &rom_paths);
     if (!rom_found) {
-        show_missing_rom_screen();
-        for (;;) {
-            platform_poll_key(NULL, true);
+        platform_status_puts("Boot: PET ROMs not found");
+        show_missing_rom_screen(&rom_paths);
+        return 2;
+    }
+
+    status_printf("Boot: ROM %s", rom_paths.combined[0] != '\0'
+                  ? path_leaf_name(rom_paths.combined)
+                  : path_leaf_name(rom_paths.kernal));
+
+    pet_frontend_show_boot_stage("Initializing PET 2001-8...");
+    if (!pet2001_init(&pet) || !pet2001_load_roms(&pet, &rom_paths)) {
+        pet_frontend_show_boot_stage("PET initialization failed");
+        if (pet.last_error[0] != '\0') {
+            pet_frontend_write_line(7, pet.last_error);
+            pet_frontend_status_line(2, pet.last_error);
+            status_printf("Boot: PET init failed: %s", pet.last_error);
         }
+        return 3;
     }
 
-    show_boot_stage("Attaching disk images...");
-    trs_disk_controller = (disk0_found || disk1_found) ? 1 : 0;
-    if (disk0_found) {
-        status_printf("Boot: mount D0 %s", status_leaf_name(disk0_path));
-        trs_disk_insert(0, disk0_path);
+    pet2001_reset(&pet);
+    pet_frontend_show_boot_stage("Running PET ROM...");
+    pet2001_step_cycles(&pet, 250000);
+    pet_frontend_render_video(&pet);
+    if (pet.video_writes == 0) {
+        pet_frontend_show_stub_screen(&pet);
+    } else if (pet_debug_status) {
+        pet_frontend_refresh_debug_status(&pet);
+    } else {
+        pet_frontend_refresh_status(&pet, "ROM touched video RAM");
     }
-    if (disk1_found) {
-        status_printf("Boot: mount D1 %s", status_leaf_name(disk1_path));
-        trs_disk_insert(1, disk1_path);
-    }
-
-    show_boot_stage("Resetting Model III...");
-    platform_status_puts("Boot: resetting CPU/FDC");
-    trs_reset(1);
-    picocalc_apply_post_reset_policy();
-    show_boot_stage("Starting ROM...");
-    show_runtime_status(disk0_found, disk0_path, disk1_found, disk1_path);
-    trs_screen_caption();
-    z80_run(1);
+    pet_frontend_flush();
+    platform_status_puts("Boot: PET ROM loop running");
+    run_pet_loop(&pet);
 
     return 0;
 }

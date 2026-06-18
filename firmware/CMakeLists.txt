@@ -1,193 +1,69 @@
-message(STATUS "Entering PicoCalcTRS firmware")
+message(STATUS "Entering PicoCalcPET firmware")
 message(STATUS "Local firmware code lives under ${CMAKE_CURRENT_SOURCE_DIR}")
 message(STATUS "Vendor integration is documented under docs/")
-option(PICOCALC_ENABLE_FDC_DIAG "Enable on-device FDC diagnostic status tracing" OFF)
-option(PICOCALC_ENABLE_DISK_FAULT_DIAG "Enable verbose on-device disk fault diagnostics" OFF)
 
-set(SDLTRS_SRC_DIR "${SDLTRS_DIR}/src")
 set(PICOCALC_STARTER_DRIVERS_DIR "${PICOCALC_TEXT_STARTER_DIR}/drivers")
 set(PICOCALC_AUDIO_PIO "${PICOCALC_STARTER_DRIVERS_DIR}/audio.pio")
-set(PICOCALC_TRS_INTERRUPT_SOURCE "${SDLTRS_SRC_DIR}/trs_interrupt.c")
-set(PICOCALC_TRS_CMD_ROM_SOURCE "${SDLTRS_SRC_DIR}/trs_cmd_rom.c")
-set(PICOCALC_TRS_CMD_ROM_SHIM_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/compat/sdltrs_cmd_rom_stdio_shim.h")
-set(PICOCALC_TRS_DISK_SOURCE "${SDLTRS_SRC_DIR}/trs_disk.c")
-set(PICOCALC_TRS_MEMORY_SOURCE "${SDLTRS_SRC_DIR}/trs_memory.c")
-set(PICOCALC_FAT32_SOURCE "${PICOCALC_STARTER_DRIVERS_DIR}/fat32.c")
+set(VICE_SRC_DIR "${VICE_DIR}/src")
 
-if(PICOCALC_PLATFORM)
-    set(PICOCALC_PATCHED_SDLTRS_SRC_DIR "${CMAKE_CURRENT_BINARY_DIR}/patched-sdltrs/src")
-    set(PICOCALC_PATCHED_STARTER_SRC_DIR "${CMAKE_CURRENT_BINARY_DIR}/patched-picocalc-starter")
-    file(MAKE_DIRECTORY "${PICOCALC_PATCHED_SDLTRS_SRC_DIR}")
-    file(MAKE_DIRECTORY "${PICOCALC_PATCHED_STARTER_SRC_DIR}")
-
-    find_program(PATCH_EXECUTABLE patch)
-    if(NOT PATCH_EXECUTABLE)
-        message(FATAL_ERROR "patch is required to apply local sdltrs patches")
-    endif()
-
-    function(picocalc_prepare_patched_sdltrs_source source_name patch_relative_path output_var)
-        set(patched_source "${PICOCALC_PATCHED_SDLTRS_SRC_DIR}/${source_name}")
-        set(upstream_source "${SDLTRS_SRC_DIR}/${source_name}")
-        set(source_patch "${CMAKE_SOURCE_DIR}/${patch_relative_path}")
-
-        file(COPY "${upstream_source}" DESTINATION "${PICOCALC_PATCHED_SDLTRS_SRC_DIR}")
-
-        execute_process(
-            COMMAND "${PATCH_EXECUTABLE}" -s -p1 -i "${source_patch}"
-            WORKING_DIRECTORY "${PICOCALC_PATCHED_SDLTRS_SRC_DIR}"
-            RESULT_VARIABLE source_patch_result
-            OUTPUT_VARIABLE source_patch_output
-            ERROR_VARIABLE source_patch_error
-        )
-        if(NOT source_patch_result EQUAL 0)
-            message(FATAL_ERROR
-                "Failed to apply ${source_patch} to ${source_name}:\n"
-                "${source_patch_output}\n"
-                "${source_patch_error}")
-        endif()
-
-        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-            "${source_patch}"
-            "${upstream_source}"
-        )
-        set(${output_var} "${patched_source}" PARENT_SCOPE)
-    endfunction()
-
-    function(picocalc_prepare_patched_starter_source source_name patch_relative_path output_var)
-        set(patched_source "${PICOCALC_PATCHED_STARTER_SRC_DIR}/${source_name}")
-        set(upstream_source "${PICOCALC_STARTER_DRIVERS_DIR}/${source_name}")
-        set(source_patch "${CMAKE_SOURCE_DIR}/${patch_relative_path}")
-
-        file(COPY "${upstream_source}" DESTINATION "${PICOCALC_PATCHED_STARTER_SRC_DIR}")
-
-        execute_process(
-            COMMAND "${PATCH_EXECUTABLE}" -s -p1 -i "${source_patch}"
-            WORKING_DIRECTORY "${PICOCALC_PATCHED_STARTER_SRC_DIR}"
-            RESULT_VARIABLE source_patch_result
-            OUTPUT_VARIABLE source_patch_output
-            ERROR_VARIABLE source_patch_error
-        )
-        if(NOT source_patch_result EQUAL 0)
-            message(FATAL_ERROR
-                "Failed to apply ${source_patch} to ${source_name}:\n"
-                "${source_patch_output}\n"
-                "${source_patch_error}")
-        endif()
-
-        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-            "${source_patch}"
-            "${upstream_source}"
-        )
-        set(${output_var} "${patched_source}" PARENT_SCOPE)
-    endfunction()
-
-    picocalc_prepare_patched_sdltrs_source(
-        "trs_disk.c"
-        "patches/sdltrs/0001-picocalc-trs_disk.patch"
-        PICOCALC_TRS_DISK_SOURCE
-    )
-    picocalc_prepare_patched_sdltrs_source(
-        "trs_memory.c"
-        "patches/sdltrs/0004-picocalc-trs_memory.patch"
-        PICOCALC_TRS_MEMORY_SOURCE
-    )
-    picocalc_prepare_patched_starter_source(
-        "fat32.c"
-        "patches/picocalc-text-starter/0001-picocalc-fat32-next-free-wrap.patch"
-        PICOCALC_FAT32_SOURCE
-    )
-
-    message(STATUS "Using patched vendor sdltrs core sources (disk/memory) from ${PICOCALC_PATCHED_SDLTRS_SRC_DIR}")
-    message(STATUS "Using patched picocalc fat32 source from ${PICOCALC_PATCHED_STARTER_SRC_DIR}")
-endif()
-
-set(SDLTRS_CORE_SOURCES
-    ${SDLTRS_SRC_DIR}/error.c
-    ${SDLTRS_SRC_DIR}/trs_clones.c
-    ${SDLTRS_SRC_DIR}/trs_cp500.c
-    ${SDLTRS_SRC_DIR}/trs_io.c
-    ${SDLTRS_SRC_DIR}/trs_state_save.c
-    ${SDLTRS_SRC_DIR}/z80.c
+add_library(vice_pet_reference INTERFACE)
+target_include_directories(vice_pet_reference INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/compat/vice
+    ${VICE_SRC_DIR}
+    ${VICE_SRC_DIR}/pet
 )
 
-if(PICOCALC_PLATFORM)
-    list(APPEND SDLTRS_CORE_SOURCES
-        ${PICOCALC_TRS_INTERRUPT_SOURCE}
-        ${PICOCALC_TRS_CMD_ROM_SOURCE}
-        ${PICOCALC_TRS_DISK_SOURCE}
-        ${PICOCALC_TRS_MEMORY_SOURCE}
-    )
-else()
-    list(APPEND SDLTRS_CORE_SOURCES
-        ${PICOCALC_TRS_INTERRUPT_SOURCE}
-        ${PICOCALC_TRS_CMD_ROM_SOURCE}
-        ${SDLTRS_SRC_DIR}/trs_disk.c
-        ${PICOCALC_TRS_MEMORY_SOURCE}
-    )
-endif()
-
-add_library(sdltrs_frontend_stubs STATIC
-    compat/sdl_compat.c
-    frontend/trs_frontend_stub.c
-    frontend/trs_keyboard_stub.c
-    emu/picocalc_reset_policy.c
-    emu/sdltrs_peripheral_stubs.c
+add_library(pet_core STATIC
+    emu/pet2001.c
+    emu/vice_6502_cpu.c
 )
 
-target_include_directories(sdltrs_frontend_stubs PUBLIC
+target_include_directories(pet_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/compat
-    ${SDLTRS_SRC_DIR}
 )
-if(PICOCALC_ENABLE_FDC_DIAG)
-    target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_ENABLE_FDC_DIAG=1)
-else()
-    target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_ENABLE_FDC_DIAG=0)
-endif()
-if(PICOCALC_ENABLE_DISK_FAULT_DIAG)
-    target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_ENABLE_DISK_FAULT_DIAG=1)
-else()
-    target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_ENABLE_DISK_FAULT_DIAG=0)
-endif()
+target_link_libraries(pet_core PUBLIC vice_pet_reference)
+
+add_library(pet_frontend STATIC
+    frontend/pet_frontend.c
+    emu/pet_app_identity.c
+)
+
+target_include_directories(pet_frontend PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(pet_frontend PUBLIC vice_pet_reference)
 
 if(PICOCALC_PLATFORM)
-    set(EMBEDDED_MODEL3_ROM_PATH "${CMAKE_SOURCE_DIR}/roms/model3.rom")
-    set(EMBEDDED_MODEL3_ROM_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_model3_rom.c")
-    find_program(XXD_EXECUTABLE xxd)
-    option(PICOCALC_REQUIRE_EMBEDDED_MODEL3_ROM
-        "Require embedding roms/model3.rom in Pico firmware builds"
-        ON)
-
     pico_sdk_init()
-    pico_generate_pio_header(sdltrs_frontend_stubs ${PICOCALC_AUDIO_PIO})
-    target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_PLATFORM=1)
-    target_sources(sdltrs_frontend_stubs PRIVATE
-        ${CMAKE_SOURCE_DIR}/fonts/trs80_model3_font_5x18.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/audio/sample_audio.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/assets/generated/disk_sfx_assets.c
-        ${PICOCALC_STARTER_DRIVERS_DIR}/audio.c
+
+    target_compile_definitions(pet_core PUBLIC PICOCALC_PLATFORM=1)
+    target_compile_definitions(pet_frontend PUBLIC PICOCALC_PLATFORM=1)
+    pico_generate_pio_header(pet_frontend ${PICOCALC_AUDIO_PIO})
+
+    target_sources(pet_frontend PRIVATE
+        assets/generated/pet2001_logo.c
         platform/platform_picocalc.c
+        platform/platform_file_picocalc.c
+        ${PICOCALC_STARTER_DRIVERS_DIR}/audio.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/display.c
-        ${PICOCALC_FAT32_SOURCE}
+        ${PICOCALC_STARTER_DRIVERS_DIR}/fat32.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/font-5x10.c
+        ${PICOCALC_STARTER_DRIVERS_DIR}/font-8x10.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/keyboard.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/lcd.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/picocalc.c
-        platform/platform_disk_stdio.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/sdcard.c
         ${PICOCALC_STARTER_DRIVERS_DIR}/southbridge.c
-        ${PICOCALC_STARTER_DRIVERS_DIR}/font-8x10.c
     )
-    target_include_directories(sdltrs_frontend_stubs PUBLIC
+    target_include_directories(pet_frontend PUBLIC
         ${PICOCALC_TEXT_STARTER_DIR}
         ${PICOCALC_STARTER_DRIVERS_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/assets/generated
     )
     set_source_files_properties(
         ${PICOCALC_STARTER_DRIVERS_DIR}/display.c
         PROPERTIES COMPILE_DEFINITIONS "debug=display_debug"
     )
-    target_link_libraries(sdltrs_frontend_stubs PUBLIC
+    target_link_libraries(pet_frontend PUBLIC
         pico_stdlib
         hardware_gpio
         hardware_i2c
@@ -195,81 +71,19 @@ if(PICOCALC_PLATFORM)
         hardware_pio
         hardware_clocks
     )
-
-    if(PICOCALC_REQUIRE_EMBEDDED_MODEL3_ROM)
-        if(NOT EXISTS "${EMBEDDED_MODEL3_ROM_PATH}")
-            message(FATAL_ERROR "Required embedded ROM missing: ${EMBEDDED_MODEL3_ROM_PATH}")
-        endif()
-        if(NOT XXD_EXECUTABLE)
-            message(FATAL_ERROR "Required tool 'xxd' not found; cannot embed ${EMBEDDED_MODEL3_ROM_PATH}")
-        endif()
-    endif()
-
-    if(EXISTS "${EMBEDDED_MODEL3_ROM_PATH}" AND XXD_EXECUTABLE)
-        file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
-        execute_process(
-            COMMAND ${XXD_EXECUTABLE} -i -n embedded_model3_rom ${EMBEDDED_MODEL3_ROM_PATH}
-            OUTPUT_FILE ${EMBEDDED_MODEL3_ROM_SOURCE}
-            RESULT_VARIABLE EMBED_ROM_XXD_RESULT
-        )
-        if(NOT EMBED_ROM_XXD_RESULT EQUAL 0)
-            message(FATAL_ERROR "Failed to embed ROM from ${EMBEDDED_MODEL3_ROM_PATH} (xxd exit ${EMBED_ROM_XXD_RESULT})")
-        endif()
-        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${EMBEDDED_MODEL3_ROM_PATH})
-        target_sources(sdltrs_frontend_stubs PRIVATE ${EMBEDDED_MODEL3_ROM_SOURCE})
-        target_compile_definitions(sdltrs_frontend_stubs PUBLIC PICOCALC_EMBEDDED_MODEL3_ROM=1)
-        message(STATUS "Embedding Model III ROM from ${EMBEDDED_MODEL3_ROM_PATH}")
-    elseif(EXISTS "${EMBEDDED_MODEL3_ROM_PATH}")
-        message(WARNING "Model III ROM found but xxd is unavailable; embedded ROM support disabled")
-    else()
-        message(STATUS "No embedded Model III ROM found at ${EMBEDDED_MODEL3_ROM_PATH}")
-    endif()
 else()
-    target_sources(sdltrs_frontend_stubs PRIVATE
+    target_sources(pet_frontend PRIVATE
         platform/platform_host.c
         platform/platform_file_host.c
     )
 endif()
 
-if(PICOCALC_PLATFORM)
-    target_sources(sdltrs_frontend_stubs PRIVATE
-        platform/platform_file_picocalc.c
+if(NOT PICOCALC_PLATFORM)
+    add_executable(pet_cpu_smoke
+        emu/pet_cpu_smoke.c
+        platform/platform_file_host.c
     )
-endif()
-
-add_library(sdltrs_core STATIC
-    ${SDLTRS_CORE_SOURCES}
-)
-
-target_include_directories(sdltrs_core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/compat
-    ${SDLTRS_SRC_DIR}
-)
-
-target_compile_definitions(sdltrs_core PUBLIC
-    ROM_PATH=""
-)
-if(PICOCALC_ENABLE_DISK_FAULT_DIAG)
-    target_compile_definitions(sdltrs_core PUBLIC PICOCALC_ENABLE_DISK_FAULT_DIAG=1)
-else()
-    target_compile_definitions(sdltrs_core PUBLIC PICOCALC_ENABLE_DISK_FAULT_DIAG=0)
-endif()
-
-if(PICOCALC_PLATFORM)
-    set_source_files_properties(${PICOCALC_TRS_CMD_ROM_SOURCE}
-        PROPERTIES COMPILE_OPTIONS "-include;${PICOCALC_TRS_CMD_ROM_SHIM_HEADER}"
-    )
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-        "${PICOCALC_TRS_CMD_ROM_SHIM_HEADER}"
-        "${PICOCALC_TRS_CMD_ROM_SOURCE}"
-    )
-
-    target_compile_definitions(sdltrs_core PUBLIC PICOCALC_PLATFORM=1)
-    target_include_directories(sdltrs_core PUBLIC
-        ${PICOCALC_TEXT_STARTER_DIR}
-        ${PICOCALC_STARTER_DRIVERS_DIR}
-    )
+    target_link_libraries(pet_cpu_smoke PRIVATE pet_core)
 endif()
 
 add_library(picocalc_vendor_headers INTERFACE)
@@ -279,24 +93,23 @@ target_include_directories(picocalc_vendor_headers INTERFACE
     ${PICOCALC_STARTER_DRIVERS_DIR}
 )
 
-add_executable(PicoCalcTRS
+add_executable(PicoCalcPET
     main.c
 )
 
-target_include_directories(PicoCalcTRS PRIVATE
+target_include_directories(PicoCalcPET PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/compat
 )
 
-target_link_libraries(PicoCalcTRS PRIVATE
-    sdltrs_core
-    sdltrs_frontend_stubs
+target_link_libraries(PicoCalcPET PRIVATE
+    pet_core
+    pet_frontend
 )
 
 if(PICOCALC_PLATFORM)
-    pico_enable_stdio_usb(PicoCalcTRS 0)
-    pico_enable_stdio_uart(PicoCalcTRS 1)
-    pico_add_extra_outputs(PicoCalcTRS)
+    pico_enable_stdio_usb(PicoCalcPET 0)
+    pico_enable_stdio_uart(PicoCalcPET 1)
+    pico_add_extra_outputs(PicoCalcPET)
     if(PICO_NO_PICOTOOL)
         message(WARNING "PICO_NO_PICOTOOL=1 disables UF2 generation; the build will emit ELF/BIN/HEX outputs only.")
     endif()
