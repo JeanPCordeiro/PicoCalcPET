@@ -1,0 +1,6 @@
+#ifndef PICOCALC_PET_VICE_IECBUS_H
+#define PICOCALC_PET_VICE_IECBUS_H
+
+#define IECBUS_NUM 16
+
+#endif

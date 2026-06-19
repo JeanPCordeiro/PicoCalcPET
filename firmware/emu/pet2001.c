@@ -7,6 +7,16 @@
 #include "emu/vice_6502_cpu.h"
 #include "platform/platform.h"
 #include "platform/platform_file.h"
+#include "cbmdos.h"
+#include "diskimage.h"
+#include "lib.h"
+#include "maincpu.h"
+#include "parallel.h"
+#include "parallel-trap.h"
+#include "petsound.h"
+#include "picocalc_vice_petsound.h"
+#include "vdrive/vdrive.h"
+#include "vdrive/vdrive-iec.h"
 
 enum {
     PIA_PORT_A = 0,
@@ -17,7 +27,6 @@ enum {
 
 enum {
     PET_KEY_LATCH_FRAMES = 8,
-    PET_PRG_GAME_KEY_LATCH_FRAMES = 30,
     PET_KEY_LEFT_SHIFT_COL = 0,
     PET_KEY_RIGHT_SHIFT_COL = 5
 };
@@ -27,15 +36,16 @@ enum {
     PET_KERNAL_SETNAM = 0xFFBD,
     PET_KERNAL_LOAD = 0xFFD5,
     PET_KERNAL_SAVE = 0xFFD8,
-    PET_BASIC4_LOAD_DEVICE = 0xF356,
-    PET_BASIC4_FILE_OPEN = 0xF4A5,
-    PET_BASIC4_SAVE_DEVICE = 0xF6FD,
     PET_CBM_DEVICE = 8,
     PET_CBM_DISK_TRACKS = 35,
-    PET_CBM_DISK_SIZE = 174848
+    PET_CBM_DISK_SIZE = 174848,
+    PET_CLOCK_HZ = 1000000,
+    PET_SOUND_SAMPLE_RATE = 22050
 };
 
-#define PET_CBM_D64_PATH "/PET2001/DISK/pet.d64"
+#define PET_VIA_ACR_SR_CONTROL 0x1Cu
+#define PET_VIA_ACR_SR_OUT_FREE_T2 0x10u
+#define PET_VIA_ACR_SR_OUT_T2 0x14u
 
 typedef struct {
     int key;
@@ -157,9 +167,31 @@ static bool load_rom_part(pet2001_t *pet, const char *label, const char *path,
 static void pet2001_set_matrix_key(pet2001_t *pet, uint8_t row, uint8_t col,
                                    bool pressed, uint8_t latch_frames);
 static uint16_t pet2001_load_word(const pet2001_t *pet, uint16_t address);
-static bool pet2001_cbm_capture_rom_file_state(pet2001_t *pet);
-static bool pet2001_cbm_load(pet2001_t *pet, uint16_t load_address, bool use_header);
+static uint16_t pet2001_basic_start_pointer(const pet2001_t *pet);
+static void pet2001_set_basic_program_bounds(pet2001_t *pet, uint16_t start,
+                                             uint16_t end);
+static void pet2001_prepare_rom_basic4_load_bounds(pet2001_t *pet,
+                                                   uint16_t start,
+                                                   uint16_t end);
+static bool pet2001_cbm_directory_request(const pet2001_t *pet);
+static void pet2001_cbm_init_vice_drive(vdrive_t *drive, disk_image_t images[2],
+                                        platform_file_t *files[2]);
+static bool pet2001_cbm_refresh_parallel_drive(pet2001_t *pet);
+static bool pet2001_cbm_load(pet2001_t *pet, uint16_t load_address,
+                             bool use_file_address, bool rom_postprocess);
+static bool pet2001_cbm_save_vice_iec(pet2001_t *pet, platform_file_t *file,
+                                      int file_drive, uint16_t start,
+                                      uint16_t end);
 static bool pet2001_cbm_save(pet2001_t *pet, uint16_t start, uint16_t end);
+void picocalc_vice_parallel_set_vdrive(vdrive_t *vdrive);
+
+static pet2001_t *cbm_parallel_pet;
+static platform_file_t *cbm_parallel_files[2];
+static disk_image_t cbm_parallel_images[2];
+static vdrive_t cbm_parallel_drive;
+static char cbm_parallel_paths[2][FILENAME_MAX];
+static bool cbm_parallel_mounted[2];
+static bool cbm_parallel_ready;
 
 static bool read_exact_prefix(const char *path, uint8_t *buffer, size_t buffer_size,
                               size_t required_size)
@@ -294,6 +326,15 @@ static void pet2001_reset_io(pet2001_t *pet)
     pet->last_io_write_value = 0;
     pet->retrace_signal = false;
     pet->retrace_poll_counter = 0;
+
+    parallel_cpu_set_atn(0);
+    parallel_cpu_set_nrfd(0);
+    parallel_cpu_set_eoi(0);
+    parallel_cpu_set_ndac(0);
+    parallel_cpu_set_dav(0);
+    parallel_cpu_set_bus(0xFF);
+    parallel_emu_set_bus(0xFF);
+    pet2001_cbm_refresh_parallel_drive(pet);
 }
 
 static void pet2001_set_retrace(pet2001_t *pet, bool active)
@@ -379,36 +420,13 @@ static bool pet2001_uses_basic1_pointers(const pet2001_t *pet)
            pet->keyboard_layout == PET2001_KEYBOARD_GRAPHICS;
 }
 
-static bool pet2001_use_graphics_game_aliases(const pet2001_t *pet)
+static bool pet2001_via_sound_active(uint8_t acr, uint8_t t2ll)
 {
-    return pet != NULL &&
-           pet->keyboard_layout == PET2001_KEYBOARD_BUSINESS &&
-           pet->last_prg_size != 0;
-}
+    uint8_t sr_control = (uint8_t)(acr & PET_VIA_ACR_SR_CONTROL);
 
-static void pet2001_set_graphics_game_alias(pet2001_t *pet, int platform_key,
-                                            bool pressed)
-{
-    uint8_t latch_frames = pressed ? PET_PRG_GAME_KEY_LATCH_FRAMES : 0;
-
-    if (!pet2001_use_graphics_game_aliases(pet)) {
-        return;
-    }
-
-    switch (platform_key) {
-    case 'a':
-    case 'A':
-        pet2001_set_matrix_key(pet, 4, 0, pressed, latch_frames);
-        break;
-    case '4':
-        pet2001_set_matrix_key(pet, 4, 6, pressed, latch_frames);
-        break;
-    case '6':
-        pet2001_set_matrix_key(pet, 4, 7, pressed, latch_frames);
-        break;
-    default:
-        break;
-    }
+    return (sr_control != PET_VIA_ACR_SR_OUT_FREE_T2 &&
+            sr_control != PET_VIA_ACR_SR_OUT_T2) ||
+           t2ll != 0;
 }
 
 static void pet2001_store_word(pet2001_t *pet, uint16_t address, uint16_t value)
@@ -574,38 +592,65 @@ static bool d64_create_blank_image(const char *path)
     return true;
 }
 
-static void pet2001_cbm_normalize_name(const char *source, uint8_t *target)
+static size_t pet2001_cbm_copy_pattern_name(const char *source, char *target,
+                                            size_t target_size)
 {
-    size_t i;
+    size_t in;
+    size_t out = 0;
 
-    memset(target, 0xA0, 16);
-    for (i = 0; i < 16 && source[i] != '\0'; ++i) {
-        uint8_t ch = (uint8_t)source[i];
+    if (target == NULL || target_size == 0) {
+        return 0;
+    }
+    if (source == NULL) {
+        target[0] = '\0';
+        return 0;
+    }
 
+    for (in = 0; source[in] != '\0' && source[in] != ',' && out + 1u < target_size; ++in) {
+        uint8_t ch = (uint8_t)source[in] & 0x7Fu;
+
+        if (ch == '.' &&
+            ((uint8_t)source[in + 1] & 0xDFu) == 'P' &&
+            ((uint8_t)source[in + 2] & 0xDFu) == 'R' &&
+            ((uint8_t)source[in + 3] & 0xDFu) == 'G' &&
+            (source[in + 4] == '\0' || source[in + 4] == ',')) {
+            break;
+        }
         if (ch >= 'a' && ch <= 'z') {
             ch = (uint8_t)(ch - ('a' - 'A'));
         }
-        if (ch == ',') {
-            break;
-        }
-        target[i] = ch;
+        target[out++] = (char)ch;
+    }
+    target[out] = '\0';
+    return out;
+}
+
+static void pet2001_cbm_build_path(const pet2001_t *pet, int drive,
+                                   char *path, size_t path_size)
+{
+    if (path == NULL || path_size == 0) {
+        return;
+    }
+    path[0] = '\0';
+    if (drive < 0 || drive > 1) {
+        return;
+    }
+    if (pet != NULL && pet->cbm_disk_mounted[drive]) {
+        snprintf(path, path_size, "%s", pet->cbm_disk_path[drive]);
     }
 }
 
-static void pet2001_cbm_build_path(char *path, size_t path_size)
-{
-    const char *env_path = getenv("PICOCALC_PET_D64");
-
-    snprintf(path, path_size, "%s",
-             env_path != NULL && env_path[0] != '\0' ? env_path : PET_CBM_D64_PATH);
-}
-
-static platform_file_t *pet2001_cbm_open_d64(pet2001_t *pet, bool writable)
+static platform_file_t *pet2001_cbm_open_d64_drive(pet2001_t *pet, int drive,
+                                                   bool writable)
 {
     char path[FILENAME_MAX];
     platform_file_t *file;
 
-    pet2001_cbm_build_path(path, sizeof(path));
+    pet2001_cbm_build_path(pet, drive, path, sizeof(path));
+    if (path[0] == '\0') {
+        snprintf(pet->last_error, sizeof(pet->last_error), "D64 drive %d empty", drive);
+        return NULL;
+    }
     file = platform_fopen(path, writable ? "r+b" : "rb");
     if (file == NULL && writable) {
         if (!d64_create_blank_image(path)) {
@@ -620,160 +665,523 @@ static platform_file_t *pet2001_cbm_open_d64(pet2001_t *pet, bool writable)
     return file;
 }
 
-static bool d64_find_file(platform_file_t *file, const uint8_t name[16],
-                          uint8_t *start_track, uint8_t *start_sector,
-                          uint16_t *sector_count)
+static void pet2001_cbm_close_parallel_drive(void)
 {
-    uint8_t sector[256];
-    int track = 18;
-    int sector_num = 1;
+    int i;
 
-    while (track != 0) {
-        int entry;
-        int next_track;
-        int next_sector;
+    picocalc_vice_parallel_set_vdrive(NULL);
+    parallel_bus_enable(PET_CBM_DEVICE, 0);
+    for (i = 0; i < 2; ++i) {
+        if (cbm_parallel_files[i] != NULL) {
+            platform_fclose(cbm_parallel_files[i]);
+            cbm_parallel_files[i] = NULL;
+        }
+        cbm_parallel_paths[i][0] = '\0';
+        cbm_parallel_mounted[i] = false;
+    }
+    cbm_parallel_pet = NULL;
+    cbm_parallel_ready = false;
+    memset(&cbm_parallel_drive, 0, sizeof(cbm_parallel_drive));
+    memset(cbm_parallel_images, 0, sizeof(cbm_parallel_images));
+}
 
-        if (!d64_read_sector(file, track, sector_num, sector)) {
+static bool pet2001_cbm_parallel_state_matches(const pet2001_t *pet)
+{
+    int i;
+
+    if (pet == NULL || cbm_parallel_pet != pet) {
+        return false;
+    }
+    for (i = 0; i < 2; ++i) {
+        if (cbm_parallel_mounted[i] != pet->cbm_disk_mounted[i]) {
             return false;
         }
-        next_track = sector[0];
-        next_sector = sector[1];
-        for (entry = 0; entry < 8; ++entry) {
-            int offset = 2 + entry * 32;
-
-            if ((sector[offset + 2] & 0x07) == 0x02 &&
-                memcmp(sector + offset + 5, name, 16) == 0) {
-                if (start_track != NULL) {
-                    *start_track = sector[offset + 3];
-                }
-                if (start_sector != NULL) {
-                    *start_sector = sector[offset + 4];
-                }
-                if (sector_count != NULL) {
-                    *sector_count = (uint16_t)sector[offset + 30] |
-                                    (uint16_t)((uint16_t)sector[offset + 31] << 8);
-                }
-                return true;
-            }
+        if (pet->cbm_disk_mounted[i] &&
+            strcmp(cbm_parallel_paths[i], pet->cbm_disk_path[i]) != 0) {
+            return false;
         }
-        track = next_track;
-        sector_num = next_sector;
     }
-
-    return false;
+    return true;
 }
 
-static bool d64_bam_mark(platform_file_t *file, int track, int sector_num, bool free_sector)
+static bool pet2001_cbm_refresh_parallel_drive(pet2001_t *pet)
 {
-    uint8_t bam[256];
-    int entry = 4 + (track - 1) * 4;
-    uint8_t mask;
+    platform_file_t *files[2] = { NULL, NULL };
+    bool any_mounted = false;
+    int i;
 
-    if (!d64_read_sector(file, 18, 0, bam) || track < 1 || track > PET_CBM_DISK_TRACKS ||
-        sector_num < 0 || sector_num >= d64_track_sector_count(track)) {
+    if (pet == NULL) {
+        pet2001_cbm_close_parallel_drive();
         return false;
     }
-
-    mask = (uint8_t)(1u << (sector_num & 7));
-    if (free_sector) {
-        if ((bam[entry + 1 + (sector_num / 8)] & mask) == 0) {
-            bam[entry]++;
-        }
-        bam[entry + 1 + (sector_num / 8)] |= mask;
-    } else {
-        if ((bam[entry + 1 + (sector_num / 8)] & mask) != 0 && bam[entry] > 0) {
-            bam[entry]--;
-        }
-        bam[entry + 1 + (sector_num / 8)] &= (uint8_t)~mask;
-    }
-    return d64_write_sector(file, 18, 0, bam);
-}
-
-static bool d64_allocate_sector(platform_file_t *file, uint8_t *track, uint8_t *sector_num)
-{
-    uint8_t bam[256];
-    int candidate_track;
-
-    if (!d64_read_sector(file, 18, 0, bam)) {
-        return false;
+    if (pet2001_cbm_parallel_state_matches(pet) && cbm_parallel_ready) {
+        return true;
     }
 
-    for (candidate_track = 1; candidate_track <= PET_CBM_DISK_TRACKS; ++candidate_track) {
-        int entry = 4 + (candidate_track - 1) * 4;
-        int candidate_sector;
+    pet2001_cbm_close_parallel_drive();
+    cbm_parallel_pet = pet;
 
-        if (candidate_track == 18 || bam[entry] == 0) {
+    for (i = 0; i < 2; ++i) {
+        if (!pet->cbm_disk_mounted[i]) {
             continue;
         }
-        for (candidate_sector = 0;
-             candidate_sector < d64_track_sector_count(candidate_track);
-             ++candidate_sector) {
-            uint8_t mask = (uint8_t)(1u << (candidate_sector & 7));
-
-            if ((bam[entry + 1 + (candidate_sector / 8)] & mask) != 0) {
-                *track = (uint8_t)candidate_track;
-                *sector_num = (uint8_t)candidate_sector;
-                return d64_bam_mark(file, candidate_track, candidate_sector, false);
+        files[i] = platform_fopen(pet->cbm_disk_path[i], "r+b");
+        if (files[i] == NULL && d64_create_blank_image(pet->cbm_disk_path[i])) {
+            files[i] = platform_fopen(pet->cbm_disk_path[i], "r+b");
+        }
+        if (files[i] == NULL) {
+            files[i] = platform_fopen(pet->cbm_disk_path[i], "rb");
+            if (files[i] == NULL) {
+                snprintf(pet->last_error, sizeof(pet->last_error),
+                         "D64 drive %d open failed", i);
+                for (int j = 0; j < 2; ++j) {
+                    if (files[j] != NULL) {
+                        platform_fclose(files[j]);
+                    }
+                }
+                pet2001_cbm_close_parallel_drive();
+                return false;
             }
         }
+        cbm_parallel_files[i] = files[i];
+        cbm_parallel_mounted[i] = true;
+        strncpy(cbm_parallel_paths[i], pet->cbm_disk_path[i],
+                sizeof(cbm_parallel_paths[i]) - 1u);
+        cbm_parallel_paths[i][sizeof(cbm_parallel_paths[i]) - 1u] = '\0';
+        any_mounted = true;
     }
 
-    return false;
+    if (!any_mounted) {
+        parallel_bus_enable(PET_CBM_DEVICE, 0);
+        return false;
+    }
+
+    pet2001_cbm_init_vice_drive(&cbm_parallel_drive, cbm_parallel_images,
+                                cbm_parallel_files);
+    picocalc_vice_parallel_set_vdrive(&cbm_parallel_drive);
+    parallel_bus_enable(PET_CBM_DEVICE, 1);
+    cbm_parallel_ready = true;
+    return true;
 }
 
-static bool d64_find_free_directory_entry(platform_file_t *file, int *dir_track,
-                                          int *dir_sector, int *entry_offset)
+static void pet2001_cbm_release_temporary_vdrive(pet2001_t *pet)
 {
-    uint8_t sector[256];
-    int track = 18;
-    int sector_num = 1;
+    picocalc_vice_parallel_set_vdrive(NULL);
+    cbm_parallel_ready = false;
+    pet2001_cbm_refresh_parallel_drive(pet);
+}
 
-    while (track != 0) {
-        int entry;
+static void pet2001_cbm_init_vice_drive(vdrive_t *drive, disk_image_t images[2],
+                                        platform_file_t *files[2])
+{
+    int i;
 
-        if (!d64_read_sector(file, track, sector_num, sector)) {
+    memset(images, 0, sizeof(disk_image_t) * 2u);
+    memset(drive, 0, sizeof(*drive));
+
+    for (i = 0; i < 2; ++i) {
+        if (files[i] == NULL) {
+            continue;
+        }
+        images[i].media.fsimage = (struct fsimage_s *)files[i];
+        images[i].type = DISK_IMAGE_TYPE_D64;
+        images[i].tracks = PET_CBM_DISK_TRACKS;
+        drive->images[i] = &images[i];
+    }
+    drive->unit = PET_CBM_DEVICE;
+    drive->image = drive->images[0] != NULL ? drive->images[0] : drive->images[1];
+    drive->image_mode = 0;
+    drive->image_format = VDRIVE_IMAGE_FORMAT_1541;
+    drive->Bam_Track = 18;
+    drive->Bam_Sector = 0;
+    drive->Header_Track = 18;
+    drive->Header_Sector = 0;
+    drive->Dir_Track = 18;
+    drive->Dir_Sector = 1;
+    drive->num_tracks = PET_CBM_DISK_TRACKS;
+    drive->bam_name = 144;
+    drive->bam_id = 162;
+    drive->current_part = 0;
+    drive->dir_part = 0;
+    drive->dir_count = 0;
+}
+
+static bool pet2001_cbm_load_vice_iec(pet2001_t *pet, platform_file_t *file,
+                                      int file_drive,
+                                      uint16_t load_address,
+                                      bool use_file_address,
+                                      bool rom_postprocess)
+{
+    disk_image_t images[2];
+    vdrive_t drive;
+    platform_file_t *files[2] = { NULL, NULL };
+    char open_name[CBMDOS_SLOT_NAME_LENGTH + 1];
+    size_t open_name_len;
+    uint16_t address = load_address;
+    uint16_t start_address = load_address;
+    uint8_t header[2];
+    unsigned int header_len = 0;
+    uint32_t loaded = 0;
+    bool eof = false;
+    bool channel_open = false;
+    bool talk_open = false;
+    int i;
+
+    if (pet == NULL || file == NULL || pet->cbm_filename_len == 0 ||
+        file_drive < 0 || file_drive > 1) {
+        return false;
+    }
+
+    open_name_len = pet2001_cbm_copy_pattern_name(pet->cbm_filename, open_name,
+                                                  sizeof(open_name));
+    if (pet2001_cbm_directory_request(pet) &&
+        open_name_len == 1 && open_name[0] == '$') {
+        open_name[1] = (char)('0' + file_drive);
+        open_name[2] = '\0';
+        open_name_len = 2;
+    }
+
+    files[file_drive] = file;
+    for (i = 0; i < 2; ++i) {
+        if (i != file_drive && pet->cbm_disk_mounted[i]) {
+            files[i] = pet2001_cbm_open_d64_drive(pet, i, false);
+        }
+    }
+
+    pet2001_cbm_init_vice_drive(&drive, images, files);
+    picocalc_vice_parallel_set_vdrive(&drive);
+
+    if ((parallel_trap_attention(0x28) & PAR_STATUS_DEVICE_NOT_PRESENT) != 0 ||
+        (parallel_trap_attention(0xF0) & PAR_STATUS_DEVICE_NOT_PRESENT) != 0) {
+        pet2001_cbm_release_temporary_vdrive(pet);
+        for (i = 0; i < 2; ++i) {
+            if (i != file_drive && files[i] != NULL) {
+                platform_fclose(files[i]);
+            }
+        }
+        snprintf(pet->last_error, sizeof(pet->last_error), "VICE open failed");
+        return false;
+    }
+    for (i = 0; i < (int)open_name_len; ++i) {
+        if ((parallel_trap_sendbyte((uint8_t)open_name[i]) &
+             PAR_STATUS_DEVICE_NOT_PRESENT) != 0) {
+            pet2001_cbm_release_temporary_vdrive(pet);
+            for (int j = 0; j < 2; ++j) {
+                if (j != file_drive && files[j] != NULL) {
+                    platform_fclose(files[j]);
+                }
+            }
+            snprintf(pet->last_error, sizeof(pet->last_error), "VICE name failed");
             return false;
         }
-        for (entry = 0; entry < 8; ++entry) {
-            int offset = 2 + entry * 32;
-
-            if (sector[offset + 2] == 0) {
-                *dir_track = track;
-                *dir_sector = sector_num;
-                *entry_offset = offset;
-                return true;
-            }
-        }
-
-        if (sector[0] == 0) {
-            uint8_t new_track;
-            uint8_t new_sector;
-            uint8_t new_dir[256];
-
-            if (!d64_allocate_sector(file, &new_track, &new_sector)) {
-                return false;
-            }
-            sector[0] = new_track;
-            sector[1] = new_sector;
-            if (!d64_write_sector(file, track, sector_num, sector)) {
-                return false;
-            }
-            memset(new_dir, 0, sizeof(new_dir));
-            new_dir[0] = 0;
-            new_dir[1] = 255;
-            if (!d64_write_sector(file, new_track, new_sector, new_dir)) {
-                return false;
-            }
-            *dir_track = new_track;
-            *dir_sector = new_sector;
-            *entry_offset = 2;
-            return true;
-        }
-
-        track = sector[0];
-        sector_num = sector[1];
     }
-    return false;
+    if ((parallel_trap_attention(0x3F) & PAR_STATUS_DEVICE_NOT_PRESENT) != 0) {
+        pet2001_cbm_release_temporary_vdrive(pet);
+        for (i = 0; i < 2; ++i) {
+            if (i != file_drive && files[i] != NULL) {
+                platform_fclose(files[i]);
+            }
+        }
+        snprintf(pet->last_error, sizeof(pet->last_error), "VICE open failed");
+        return false;
+    }
+    channel_open = true;
+
+    if ((parallel_trap_attention(0x48) & PAR_STATUS_DEVICE_NOT_PRESENT) != 0 ||
+        (parallel_trap_attention(0x60) & PAR_STATUS_DEVICE_NOT_PRESENT) != 0) {
+        parallel_trap_attention(0x5F);
+        parallel_trap_attention(0x28);
+        parallel_trap_attention(0xE0);
+        parallel_trap_attention(0x3F);
+        pet2001_cbm_release_temporary_vdrive(pet);
+        for (i = 0; i < 2; ++i) {
+            if (i != file_drive && files[i] != NULL) {
+                platform_fclose(files[i]);
+            }
+        }
+        snprintf(pet->last_error, sizeof(pet->last_error), "VICE talk failed");
+        return false;
+    }
+    talk_open = true;
+
+    while (!eof) {
+        uint8_t data = 0;
+        int status = parallel_trap_receivebyte(&data, 0);
+
+        if ((status & (PAR_STATUS_DEVICE_NOT_PRESENT |
+                       PAR_STATUS_TIME_OUT_ON_READ)) != 0) {
+            if (talk_open) {
+                parallel_trap_attention(0x5F);
+            }
+            if (channel_open) {
+                parallel_trap_attention(0x28);
+                parallel_trap_attention(0xE0);
+                parallel_trap_attention(0x3F);
+            }
+            pet2001_cbm_release_temporary_vdrive(pet);
+            for (i = 0; i < 2; ++i) {
+                if (i != file_drive && files[i] != NULL) {
+                    platform_fclose(files[i]);
+                }
+            }
+            snprintf(pet->last_error, sizeof(pet->last_error), "VICE read failed");
+            return false;
+        }
+
+        if (header_len < 2) {
+            header[header_len++] = data;
+            if (header_len == 2) {
+                uint16_t file_address = (uint16_t)header[0] |
+                                        (uint16_t)((uint16_t)header[1] << 8);
+
+                if (use_file_address || load_address == 0) {
+                    address = file_address;
+                    start_address = file_address;
+                } else {
+                    address = load_address;
+                    start_address = load_address;
+                }
+            }
+        } else {
+            if (address >= sizeof(pet->ram)) {
+                if (talk_open) {
+                    parallel_trap_attention(0x5F);
+                }
+                if (channel_open) {
+                    parallel_trap_attention(0x28);
+                    parallel_trap_attention(0xE0);
+                    parallel_trap_attention(0x3F);
+                }
+                pet2001_cbm_release_temporary_vdrive(pet);
+                for (i = 0; i < 2; ++i) {
+                    if (i != file_drive && files[i] != NULL) {
+                        platform_fclose(files[i]);
+                    }
+                }
+                snprintf(pet->last_error, sizeof(pet->last_error), "VICE load over RAM");
+                return false;
+            }
+            pet->ram[address++] = data;
+            loaded++;
+        }
+
+        eof = (status & PAR_STATUS_EOI) != 0;
+    }
+
+    if (talk_open) {
+        parallel_trap_attention(0x5F);
+    }
+    if (channel_open) {
+        parallel_trap_attention(0x28);
+        parallel_trap_attention(0xE0);
+        parallel_trap_attention(0x3F);
+    }
+    pet2001_cbm_release_temporary_vdrive(pet);
+    for (i = 0; i < 2; ++i) {
+        if (i != file_drive && files[i] != NULL) {
+            platform_fclose(files[i]);
+        }
+    }
+    if (header_len < 2 || loaded == 0) {
+        snprintf(pet->last_error, sizeof(pet->last_error), "VICE load empty");
+        return false;
+    }
+
+    if (pet2001_cbm_directory_request(pet)) {
+        pet->last_prg_start = 0;
+        pet->last_prg_end = 0;
+        pet->last_prg_size = 0;
+        pet->cbm_directory_loads++;
+    } else {
+        pet->last_prg_start = start_address;
+        pet->last_prg_end = address;
+        pet->last_prg_size = loaded;
+    }
+    if (rom_postprocess && !pet2001_uses_basic1_pointers(pet)) {
+        pet2001_prepare_rom_basic4_load_bounds(pet, start_address, address);
+    } else {
+        pet2001_set_basic_program_bounds(pet, start_address, address);
+    }
+    pet->cpu.x = (uint8_t)(address & 0xFF);
+    pet->cpu.y = (uint8_t)(address >> 8);
+    return true;
+}
+
+static size_t pet2001_cbm_build_vice_save_name(const pet2001_t *pet, char *target,
+                                               size_t target_size)
+{
+    size_t in;
+    size_t out = 0;
+
+    if (pet == NULL || target == NULL || target_size == 0) {
+        return 0;
+    }
+    for (in = 0; in < pet->cbm_filename_len && out + 5u < target_size; ++in) {
+        uint8_t ch = (uint8_t)pet->cbm_filename[in] & 0x7Fu;
+
+        if (ch == ',') {
+            break;
+        }
+        if (ch == '.' && in + 3u < pet->cbm_filename_len &&
+            (((uint8_t)pet->cbm_filename[in + 1u] & 0xDFu) == 'P') &&
+            (((uint8_t)pet->cbm_filename[in + 2u] & 0xDFu) == 'R') &&
+            (((uint8_t)pet->cbm_filename[in + 3u] & 0xDFu) == 'G') &&
+            (in + 4u >= pet->cbm_filename_len ||
+             pet->cbm_filename[in + 4u] == '\0' ||
+             pet->cbm_filename[in + 4u] == ',')) {
+            break;
+        }
+        if (ch >= 'a' && ch <= 'z') {
+            ch = (uint8_t)(ch - ('a' - 'A'));
+        }
+        target[out++] = (char)ch;
+    }
+
+    if (out == 0 || out + 4u >= target_size) {
+        target[0] = '\0';
+        return 0;
+    }
+    memcpy(target + out, ",P,W", 4);
+    out += 4;
+    target[out] = '\0';
+    return out;
+}
+
+static void pet2001_cbm_close_vice_save_channel(void)
+{
+    parallel_trap_attention(0x3F);
+    parallel_trap_attention(0x28);
+    parallel_trap_attention(0xE1);
+    parallel_trap_attention(0x3F);
+}
+
+static void pet2001_cbm_close_extra_files(platform_file_t *files[2], int main_drive)
+{
+    int i;
+
+    for (i = 0; i < 2; ++i) {
+        if (i != main_drive && files[i] != NULL) {
+            platform_fclose(files[i]);
+        }
+    }
+}
+
+static bool pet2001_cbm_save_vice_iec(pet2001_t *pet, platform_file_t *file,
+                                      int file_drive, uint16_t start,
+                                      uint16_t end)
+{
+    disk_image_t images[2];
+    vdrive_t drive;
+    platform_file_t *files[2] = { NULL, NULL };
+    char open_name[CBMDOS_SLOT_NAME_LENGTH + 8];
+    size_t open_name_len;
+    uint16_t address;
+    int i;
+
+    if (pet == NULL || file == NULL || pet->cbm_filename_len == 0 ||
+        file_drive < 0 || file_drive > 1 || start >= end ||
+        start >= sizeof(pet->ram) || end > sizeof(pet->ram)) {
+        return false;
+    }
+
+    open_name_len = pet2001_cbm_build_vice_save_name(pet, open_name,
+                                                     sizeof(open_name));
+    if (open_name_len == 0) {
+        snprintf(pet->last_error, sizeof(pet->last_error), "VICE save name bad");
+        return false;
+    }
+
+    files[file_drive] = file;
+    for (i = 0; i < 2; ++i) {
+        if (i != file_drive && pet->cbm_disk_mounted[i]) {
+            files[i] = pet2001_cbm_open_d64_drive(pet, i, true);
+        }
+    }
+
+    pet2001_cbm_init_vice_drive(&drive, images, files);
+    picocalc_vice_parallel_set_vdrive(&drive);
+
+    if ((parallel_trap_attention(0x28) & PAR_STATUS_DEVICE_NOT_PRESENT) != 0 ||
+        (parallel_trap_attention(0xF1) & PAR_STATUS_DEVICE_NOT_PRESENT) != 0) {
+        pet2001_cbm_release_temporary_vdrive(pet);
+        pet2001_cbm_close_extra_files(files, file_drive);
+        snprintf(pet->last_error, sizeof(pet->last_error), "VICE save open failed");
+        return false;
+    }
+
+    for (i = 0; i < (int)open_name_len; ++i) {
+        if ((parallel_trap_sendbyte((uint8_t)open_name[i]) & 0xFF) != SERIAL_OK) {
+            pet2001_cbm_close_vice_save_channel();
+            pet2001_cbm_release_temporary_vdrive(pet);
+            pet2001_cbm_close_extra_files(files, file_drive);
+            snprintf(pet->last_error, sizeof(pet->last_error), "VICE save name failed");
+            return false;
+        }
+    }
+    if ((parallel_trap_attention(0x3F) & 0xFF) != SERIAL_OK) {
+        pet2001_cbm_close_vice_save_channel();
+        pet2001_cbm_release_temporary_vdrive(pet);
+        pet2001_cbm_close_extra_files(files, file_drive);
+        snprintf(pet->last_error, sizeof(pet->last_error), "VICE save open failed");
+        return false;
+    }
+
+    if ((parallel_trap_attention(0x28) & PAR_STATUS_DEVICE_NOT_PRESENT) != 0 ||
+        (parallel_trap_attention(0x61) & 0xFF) != SERIAL_OK) {
+        pet2001_cbm_close_vice_save_channel();
+        pet2001_cbm_release_temporary_vdrive(pet);
+        pet2001_cbm_close_extra_files(files, file_drive);
+        snprintf(pet->last_error, sizeof(pet->last_error), "VICE save channel failed");
+        return false;
+    }
+
+    if ((parallel_trap_sendbyte((uint8_t)(start & 0xFF)) & 0xFF) != SERIAL_OK ||
+        (parallel_trap_sendbyte((uint8_t)(start >> 8)) & 0xFF) != SERIAL_OK) {
+        pet2001_cbm_close_vice_save_channel();
+        pet2001_cbm_release_temporary_vdrive(pet);
+        pet2001_cbm_close_extra_files(files, file_drive);
+        snprintf(pet->last_error, sizeof(pet->last_error), "VICE save header failed");
+        return false;
+    }
+
+    for (address = start; address < end; ++address) {
+        if ((parallel_trap_sendbyte(pet->ram[address]) & 0xFF) != SERIAL_OK) {
+            pet2001_cbm_close_vice_save_channel();
+            pet2001_cbm_release_temporary_vdrive(pet);
+            pet2001_cbm_close_extra_files(files, file_drive);
+            snprintf(pet->last_error, sizeof(pet->last_error), "VICE save write failed");
+            return false;
+        }
+    }
+
+    pet2001_cbm_close_vice_save_channel();
+    pet2001_cbm_release_temporary_vdrive(pet);
+    pet2001_cbm_close_extra_files(files, file_drive);
+
+    pet->last_prg_start = start;
+    pet->last_prg_end = end;
+    pet->last_prg_size = (uint32_t)(end - start);
+    return true;
+}
+
+static bool pet2001_cbm_directory_request(const pet2001_t *pet)
+{
+    return pet != NULL && pet->cbm_filename_len > 0 &&
+           ((uint8_t)pet->cbm_filename[0] & 0x7Fu) == '$';
+}
+
+static int pet2001_cbm_requested_drive(const pet2001_t *pet)
+{
+    if (pet == NULL || pet->cbm_filename_len == 0) {
+        return 0;
+    }
+    if (((uint8_t)pet->cbm_filename[0] & 0x7Fu) == '$') {
+        return pet->cbm_filename_len > 1 &&
+               (((uint8_t)pet->cbm_filename[1] & 0x7Fu) == '1') ? 1 : 0;
+    }
+    return pet->cbm_filename_len > 1 &&
+           (((uint8_t)pet->cbm_filename[0] & 0x7Fu) == '1') &&
+           (((uint8_t)pet->cbm_filename[1] & 0x7Fu) == ':') ? 1 : 0;
 }
 
 static uint16_t pet2001_basic_start_pointer(const pet2001_t *pet)
@@ -784,21 +1192,28 @@ static uint16_t pet2001_basic_start_pointer(const pet2001_t *pet)
 static void pet2001_set_basic_program_bounds(pet2001_t *pet, uint16_t start, uint16_t end)
 {
     uint16_t basicstart;
-    uint16_t loadadr;
 
     basicstart = pet2001_basic_start_pointer(pet);
-    if (pet2001_uses_basic1_pointers(pet)) {
-        loadadr = 0x00E3;
-    } else {
-        loadadr = 0x00C7;
-    }
 
     pet2001_store_word(pet, basicstart, start);
-    pet2001_store_word(pet, loadadr, start);
     pet2001_store_word(pet, (uint16_t)(basicstart + 2u), end);
     pet2001_store_word(pet, (uint16_t)(basicstart + 4u), end);
     pet2001_store_word(pet, (uint16_t)(basicstart + 6u), end);
-    pet2001_store_word(pet, (uint16_t)(loadadr + 2u), end);
+    if (!pet2001_uses_basic1_pointers(pet)) {
+        pet2001_store_word(pet, 0x00C9, end);
+    }
+}
+
+static void pet2001_prepare_rom_basic4_load_bounds(pet2001_t *pet, uint16_t start,
+                                                   uint16_t end)
+{
+    uint16_t basicstart = pet2001_basic_start_pointer(pet);
+
+    pet2001_store_word(pet, basicstart, start);
+    pet2001_store_word(pet, (uint16_t)(basicstart + 2u), end);
+    pet2001_store_word(pet, (uint16_t)(basicstart + 4u), end);
+    pet2001_store_word(pet, (uint16_t)(basicstart + 6u), end);
+    pet2001_store_word(pet, 0x00C9, end);
 }
 
 static uint8_t pia_read_port(const pet2001_pia_t *pia, uint8_t external, bool port_b)
@@ -807,6 +1222,37 @@ static uint8_t pia_read_port(const pet2001_pia_t *pia, uint8_t external, bool po
     uint8_t output = port_b ? pia->port_b : pia->port_a;
 
     return (uint8_t)((external & (uint8_t)~ddr) | (output & ddr));
+}
+
+static bool pia_control_line_manual_output(uint8_t control)
+{
+    return (control & 0x30u) == 0x30u;
+}
+
+static uint8_t pia_control_line_level(uint8_t control)
+{
+    return (uint8_t)((control & 0x08u) ? 1u : 0u);
+}
+
+static void pet2001_apply_pia1_ca2(const pet2001_t *pet)
+{
+    if (pia_control_line_manual_output(pet->pia1.ctrl_a)) {
+        parallel_cpu_set_eoi((uint8_t)(pia_control_line_level(pet->pia1.ctrl_a) ? 0 : 1));
+    }
+}
+
+static void pet2001_apply_pia2_ca2(const pet2001_t *pet)
+{
+    if (pia_control_line_manual_output(pet->pia2.ctrl_a)) {
+        parallel_cpu_set_ndac((uint8_t)(pia_control_line_level(pet->pia2.ctrl_a) ? 0 : 1));
+    }
+}
+
+static void pet2001_apply_pia2_cb2(const pet2001_t *pet)
+{
+    if (pia_control_line_manual_output(pet->pia2.ctrl_b)) {
+        parallel_cpu_set_dav((uint8_t)(pia_control_line_level(pet->pia2.ctrl_b) ? 0 : 1));
+    }
 }
 
 static uint8_t pet2001_read_pia1(pet2001_t *pet, uint16_t address)
@@ -819,7 +1265,7 @@ static uint8_t pet2001_read_pia1(pet2001_t *pet, uint16_t address)
             return pet->pia1.ddr_a;
         }
         pet->pia1.ctrl_a &= 0x3F;
-        return pia_read_port(&pet->pia1, 0xFF, false);
+        return pia_read_port(&pet->pia1, parallel_eoi ? 0xBF : 0xFF, false);
     case PIA_CTRL_A:
         return pet->pia1.ctrl_a;
     case PIA_PORT_B:
@@ -851,7 +1297,7 @@ static uint8_t pet2001_read_pia2(pet2001_t *pet, uint16_t address)
             return pet->pia2.ddr_a;
         }
         pet->pia2.ctrl_a &= 0x3F;
-        return pia_read_port(&pet->pia2, 0xFF, false);
+        return pia_read_port(&pet->pia2, parallel_bus, false);
     case PIA_CTRL_A:
         return pet->pia2.ctrl_a;
     case PIA_PORT_B:
@@ -897,6 +1343,30 @@ static void pet2001_write_pia(pet2001_pia_t *pia, uint16_t address, uint8_t valu
     }
 }
 
+static void pet2001_write_pia1(pet2001_t *pet, uint16_t address, uint8_t value)
+{
+    uint8_t reg = (uint8_t)(address & 0x03);
+
+    pet2001_write_pia(&pet->pia1, address, value);
+    if (reg == PIA_CTRL_A) {
+        pet2001_apply_pia1_ca2(pet);
+    }
+}
+
+static void pet2001_write_pia2(pet2001_t *pet, uint16_t address, uint8_t value)
+{
+    uint8_t reg = (uint8_t)(address & 0x03);
+
+    pet2001_write_pia(&pet->pia2, address, value);
+    if (reg == PIA_PORT_B && (pet->pia2.ctrl_b & 0x04) != 0) {
+        parallel_cpu_set_bus(pet->pia2.port_b);
+    } else if (reg == PIA_CTRL_A) {
+        pet2001_apply_pia2_ca2(pet);
+    } else if (reg == PIA_CTRL_B) {
+        pet2001_apply_pia2_cb2(pet);
+    }
+}
+
 static uint8_t pet2001_read_via(pet2001_t *pet, uint16_t address)
 {
     uint8_t reg = (uint8_t)(address & 0x0F);
@@ -904,7 +1374,20 @@ static uint8_t pet2001_read_via(pet2001_t *pet, uint16_t address)
     switch (reg) {
     case VIA_ORB:
     {
-        uint8_t external = pet2001_poll_retrace(pet) ? 0xDF : 0xFF;
+        uint8_t external = 0xFF;
+
+        if (parallel_nrfd) {
+            external &= (uint8_t)~0x40u;
+        }
+        if (parallel_ndac) {
+            external &= (uint8_t)~0x01u;
+        }
+        if (parallel_dav) {
+            external &= (uint8_t)~0x80u;
+        }
+        if (pet2001_poll_retrace(pet)) {
+            external &= (uint8_t)~0x20u;
+        }
         return (uint8_t)((external & (uint8_t)~pet->via.reg[VIA_DDRB]) |
                          (pet->via.reg[VIA_ORB] & pet->via.reg[VIA_DDRB]));
     }
@@ -926,9 +1409,31 @@ static void pet2001_write_via(pet2001_t *pet, uint16_t address, uint8_t value)
     uint8_t reg = (uint8_t)(address & 0x0F);
 
     switch (reg) {
+    case VIA_ORB:
+        pet->via.reg[VIA_ORB] = value;
+        parallel_cpu_set_nrfd((uint8_t)((value & 0x02u) ? 0 : 1));
+        parallel_cpu_set_atn((uint8_t)((value & 0x04u) ? 0 : 1));
+        break;
     case VIA_ORA_NO_HANDSHAKE:
         pet->via.reg[VIA_ORA] = value;
         pet->via.reg[VIA_ORA_NO_HANDSHAKE] = value;
+        break;
+    case VIA_DDRB:
+        pet->via.reg[VIA_DDRB] = value;
+        parallel_cpu_set_nrfd((uint8_t)((pet->via.reg[VIA_ORB] & 0x02u) ? 0 : 1));
+        parallel_cpu_set_atn((uint8_t)((pet->via.reg[VIA_ORB] & 0x04u) ? 0 : 1));
+        break;
+    case VIA_T2CL:
+        pet->via.reg[VIA_T2CL] = value;
+        petsound_store_onoff(pet2001_via_sound_active(pet->via.reg[VIA_ACR], value));
+        break;
+    case VIA_ACR:
+        pet->via.reg[VIA_ACR] = value;
+        petsound_store_onoff(pet2001_via_sound_active(value, pet->via.reg[VIA_T2CL]));
+        break;
+    case VIA_PCR:
+        pet->via.reg[VIA_PCR] = value;
+        petsound_store_manual((value & 0xE0u) == 0xE0u, maincpu_clk);
         break;
     case VIA_IFR:
         pet->via.reg[VIA_IFR] &= (uint8_t)~value;
@@ -959,6 +1464,7 @@ bool pet2001_init(pet2001_t *pet)
     pet->basic_rom_size = 0x2000;
     pet->keyboard_layout = PET2001_KEYBOARD_GRAPHICS;
     pet->last_error[0] = '\0';
+    picocalc_vice_petsound_init(PET_SOUND_SAMPLE_RATE, PET_CLOCK_HZ);
     pet2001_reset_io(pet);
     return true;
 }
@@ -1113,6 +1619,28 @@ bool pet2001_save_prg(pet2001_t *pet, const char *path)
     return true;
 }
 
+bool pet2001_mount_disk(pet2001_t *pet, int drive, const char *path)
+{
+    if (pet == NULL || path == NULL || path[0] == '\0' || drive < 0 || drive > 1) {
+        return false;
+    }
+    strncpy(pet->cbm_disk_path[drive], path, sizeof(pet->cbm_disk_path[drive]) - 1u);
+    pet->cbm_disk_path[drive][sizeof(pet->cbm_disk_path[drive]) - 1u] = '\0';
+    pet->cbm_disk_mounted[drive] = true;
+    pet->last_error[0] = '\0';
+    return pet2001_cbm_refresh_parallel_drive(pet);
+}
+
+void pet2001_unmount_disk(pet2001_t *pet, int drive)
+{
+    if (pet == NULL || drive < 0 || drive > 1) {
+        return;
+    }
+    pet->cbm_disk_path[drive][0] = '\0';
+    pet->cbm_disk_mounted[drive] = false;
+    pet2001_cbm_refresh_parallel_drive(pet);
+}
+
 static void pet2001_set_kernal_status(pet2001_t *pet, bool error)
 {
     if (error) {
@@ -1139,240 +1667,51 @@ static void pet2001_kernal_rts(pet2001_t *pet)
     pet->pc = (uint16_t)MOS6510_REGS_GET_PC(&pet->cpu);
 }
 
-static uint16_t pet2001_stack_return_address(const pet2001_t *pet)
-{
-    uint8_t sp;
-
-    if (pet == NULL) {
-        return 0;
-    }
-
-    sp = (uint8_t)(pet->cpu.sp + 1u);
-    return (uint16_t)pet->ram[0x0100u + sp] |
-           (uint16_t)((uint16_t)pet->ram[0x0100u + (uint8_t)(sp + 1u)] << 8);
-}
-
-static bool pet2001_cbm_capture_rom_file_state(pet2001_t *pet)
-{
-    uint16_t name_addr;
-    uint8_t length;
-    uint8_t i;
-
-    if (pet == NULL) {
-        return false;
-    }
-
-    length = pet->ram[0x00D1];
-    if (length >= sizeof(pet->cbm_filename)) {
-        length = sizeof(pet->cbm_filename) - 1;
-    }
-    name_addr = pet2001_load_word(pet, 0x00DA);
-    for (i = 0; i < length; ++i) {
-        pet->cbm_filename[i] = (char)pet2001_read(pet, (uint16_t)(name_addr + i));
-    }
-    pet->cbm_filename[length] = '\0';
-    pet->cbm_filename_len = length;
-    pet->cbm_device = pet->ram[0x00D4];
-    pet->cbm_secondary = pet->ram[0x00D3];
-    return pet->cbm_device == PET_CBM_DEVICE && pet->cbm_filename_len != 0;
-}
-
-static bool pet2001_cbm_load(pet2001_t *pet, uint16_t load_address, bool use_header)
+static bool pet2001_cbm_load(pet2001_t *pet, uint16_t load_address,
+                             bool use_file_address, bool rom_postprocess)
 {
     platform_file_t *file;
-    uint8_t wanted_name[16];
-    uint8_t sector[256];
-    uint8_t track;
-    uint8_t sector_num;
-    uint16_t address = load_address;
-    uint16_t start_address = load_address;
-    bool have_address = !use_header;
-    uint32_t loaded = 0;
+    int requested_drive;
+    bool loaded;
 
     if (pet == NULL || pet->cbm_filename_len == 0) {
         return false;
     }
 
-    file = pet2001_cbm_open_d64(pet, false);
+    pet->cbm_load_attempts++;
+    pet->last_error[0] = '\0';
+    requested_drive = pet2001_cbm_requested_drive(pet);
+    file = pet2001_cbm_open_d64_drive(pet, requested_drive, false);
     if (file == NULL) {
         return false;
     }
 
-    pet2001_cbm_normalize_name(pet->cbm_filename, wanted_name);
-    if (!d64_find_file(file, wanted_name, &track, &sector_num, NULL)) {
-        platform_fclose(file);
-        snprintf(pet->last_error, sizeof(pet->last_error), "D64 file not found");
-        return false;
-    }
-
-    while (track != 0) {
-        int end = 256;
-        int i;
-        uint8_t next_track;
-        uint8_t next_sector;
-
-        if (!d64_read_sector(file, track, sector_num, sector)) {
-            platform_fclose(file);
-            snprintf(pet->last_error, sizeof(pet->last_error), "D64 read failed");
-            return false;
-        }
-        next_track = sector[0];
-        next_sector = sector[1];
-        if (next_track == 0) {
-            end = sector[1] + 1;
-            if (end < 2) {
-                end = 2;
-            }
-        }
-
-        for (i = 2; i < end; ++i) {
-            if (!have_address) {
-                address = sector[i++];
-                if (i >= end) {
-                    platform_fclose(file);
-                    snprintf(pet->last_error, sizeof(pet->last_error), "D64 load header bad");
-                    return false;
-                }
-                address |= (uint16_t)((uint16_t)sector[i] << 8);
-                start_address = address;
-                have_address = true;
-                continue;
-            }
-            if (address >= sizeof(pet->ram)) {
-                platform_fclose(file);
-                snprintf(pet->last_error, sizeof(pet->last_error), "D64 load over RAM");
-                return false;
-            }
-            pet->ram[address++] = sector[i];
-            loaded++;
-        }
-
-        track = next_track;
-        sector_num = next_sector;
-    }
-
+    loaded = pet2001_cbm_load_vice_iec(pet, file, requested_drive, load_address,
+                                       use_file_address, rom_postprocess);
     platform_fclose(file);
-    if (!have_address || loaded == 0) {
-        snprintf(pet->last_error, sizeof(pet->last_error), "D64 load empty");
-        return false;
-    }
-
-    pet->last_prg_start = start_address;
-    pet->last_prg_end = address;
-    pet->last_prg_size = loaded;
-    pet2001_set_basic_program_bounds(pet, start_address, address);
-    pet->cpu.x = (uint8_t)(address & 0xFF);
-    pet->cpu.y = (uint8_t)(address >> 8);
-    return true;
+    return loaded;
 }
 
 static bool pet2001_cbm_save(pet2001_t *pet, uint16_t start, uint16_t end)
 {
     platform_file_t *file;
-    uint8_t wanted_name[16];
-    uint8_t sector[256];
-    uint8_t first_track = 0;
-    uint8_t first_sector = 0;
-    uint8_t prev_track = 0;
-    uint8_t prev_sector = 0;
-    uint16_t address = start;
-    uint16_t sector_count = 0;
-    int dir_track;
-    int dir_sector;
-    int entry_offset;
+    int requested_drive;
+    bool saved;
 
     if (pet == NULL || pet->cbm_filename_len == 0 || start >= end ||
         start >= sizeof(pet->ram) || end > sizeof(pet->ram)) {
         return false;
     }
 
-    file = pet2001_cbm_open_d64(pet, true);
+    requested_drive = pet2001_cbm_requested_drive(pet);
+    file = pet2001_cbm_open_d64_drive(pet, requested_drive, true);
     if (file == NULL) {
         return false;
     }
 
-    pet2001_cbm_normalize_name(pet->cbm_filename, wanted_name);
-    if (d64_find_file(file, wanted_name, NULL, NULL, NULL)) {
-        platform_fclose(file);
-        snprintf(pet->last_error, sizeof(pet->last_error), "D64 file exists");
-        return false;
-    }
-
-    while (address < end || first_track == 0) {
-        uint8_t track;
-        uint8_t sector_num;
-        int data_pos = 2;
-
-        if (!d64_allocate_sector(file, &track, &sector_num)) {
-            platform_fclose(file);
-            snprintf(pet->last_error, sizeof(pet->last_error), "D64 disk full");
-            return false;
-        }
-        if (first_track == 0) {
-            first_track = track;
-            first_sector = sector_num;
-        }
-        if (prev_track != 0) {
-            uint8_t prev[256];
-
-            if (!d64_read_sector(file, prev_track, prev_sector, prev)) {
-                platform_fclose(file);
-                return false;
-            }
-            prev[0] = track;
-            prev[1] = sector_num;
-            if (!d64_write_sector(file, prev_track, prev_sector, prev)) {
-                platform_fclose(file);
-                return false;
-            }
-        }
-
-        memset(sector, 0, sizeof(sector));
-        sector[0] = 0;
-        sector[1] = 1;
-        if (sector_count == 0) {
-            sector[data_pos++] = (uint8_t)(start & 0xFF);
-            sector[data_pos++] = (uint8_t)(start >> 8);
-        }
-        while (address < end && data_pos < 256) {
-            sector[data_pos++] = pet->ram[address++];
-        }
-        if (address >= end) {
-            sector[0] = 0;
-            sector[1] = (uint8_t)(data_pos - 1);
-        }
-        if (!d64_write_sector(file, track, sector_num, sector)) {
-            platform_fclose(file);
-            snprintf(pet->last_error, sizeof(pet->last_error), "D64 write failed");
-            return false;
-        }
-        prev_track = track;
-        prev_sector = sector_num;
-        sector_count++;
-    }
-
-    if (!d64_find_free_directory_entry(file, &dir_track, &dir_sector, &entry_offset) ||
-        !d64_read_sector(file, dir_track, dir_sector, sector)) {
-        platform_fclose(file);
-        snprintf(pet->last_error, sizeof(pet->last_error), "D64 directory full");
-        return false;
-    }
-    sector[entry_offset + 2] = 0x82;
-    sector[entry_offset + 3] = first_track;
-    sector[entry_offset + 4] = first_sector;
-    memcpy(sector + entry_offset + 5, wanted_name, 16);
-    sector[entry_offset + 30] = (uint8_t)(sector_count & 0xFF);
-    sector[entry_offset + 31] = (uint8_t)(sector_count >> 8);
-    if (!d64_write_sector(file, dir_track, dir_sector, sector)) {
-        platform_fclose(file);
-        return false;
-    }
-
+    saved = pet2001_cbm_save_vice_iec(pet, file, requested_drive, start, end);
     platform_fclose(file);
-    pet->last_prg_start = start;
-    pet->last_prg_end = end;
-    pet->last_prg_size = (uint32_t)(end - start);
-    return true;
+    return saved;
 }
 
 bool pet2001_kernal_trap(pet2001_t *pet)
@@ -1419,7 +1758,8 @@ bool pet2001_kernal_trap(pet2001_t *pet)
             !pet2001_cbm_load(pet,
                               (uint16_t)pet->cpu.x |
                                   (uint16_t)((uint16_t)pet->cpu.y << 8),
-                              pet->cbm_secondary == 0));
+                              pet->cbm_secondary != 0,
+                              false));
         pet2001_kernal_rts(pet);
         return true;
     case PET_KERNAL_SAVE:
@@ -1432,31 +1772,6 @@ bool pet2001_kernal_trap(pet2001_t *pet)
         uint16_t end = (uint16_t)pet->cpu.x | (uint16_t)((uint16_t)pet->cpu.y << 8);
 
         pet2001_set_kernal_status(pet, !pet2001_cbm_save(pet, start, end));
-        pet2001_kernal_rts(pet);
-        return true;
-    }
-    case PET_BASIC4_FILE_OPEN:
-        if (pet2001_stack_return_address(pet) != 0xF373 ||
-            !pet2001_cbm_capture_rom_file_state(pet)) {
-            return false;
-        }
-        pet2001_set_kernal_status(pet, !pet2001_cbm_load(pet, 0, true));
-        pet->ram[0x0096] = (pet->cpu.p & P_CARRY) != 0 ? 0x04 : 0x00;
-        pet->ram[0x009D] = 0x00;
-        pet2001_kernal_rts(pet);
-        pet2001_kernal_rts(pet);
-        return true;
-    case PET_BASIC4_SAVE_DEVICE:
-        if (!pet2001_cbm_capture_rom_file_state(pet)) {
-            return false;
-        }
-    {
-        uint16_t basicstart = pet2001_basic_start_pointer(pet);
-        uint16_t start = pet2001_load_word(pet, basicstart);
-        uint16_t end = pet2001_load_word(pet, (uint16_t)(basicstart + 2u));
-
-        pet2001_set_kernal_status(pet, !pet2001_cbm_save(pet, start, end));
-        pet->ram[0x0096] = (pet->cpu.p & P_CARRY) != 0 ? 0x04 : 0x00;
         pet2001_kernal_rts(pet);
         return true;
     }
@@ -1486,9 +1801,13 @@ void pet2001_reset(pet2001_t *pet)
     pet->io_reads = 0;
     pet->io_writes = 0;
     pet->video_writes = 0;
+    pet->cbm_load_attempts = 0;
+    pet->cbm_directory_loads = 0;
     pet->frames_executed = 0;
     pet->cpu.sp = 0xFF;
     pet->cpu.p = P_INTERRUPT | P_UNUSED;
+    maincpu_clk = 0;
+    picocalc_vice_petsound_reset(0);
     pet->pc = (uint16_t)pet->kernal_rom[0x0FFC] |
               (uint16_t)((uint16_t)pet->kernal_rom[0x0FFD] << 8);
     if (pet->pc == 0xFFFF || pet->pc == 0x0000) {
@@ -1527,6 +1846,7 @@ void pet2001_step_cycles(pet2001_t *pet, uint32_t cycles)
 
     if (pet->roms_loaded) {
         pet->cycles_executed += vice_6502_step(pet, cycles);
+        maincpu_clk = pet->cycles_executed;
     }
     pet->pc = (uint16_t)MOS6510_REGS_GET_PC(&pet->cpu);
 }
@@ -1559,7 +1879,6 @@ void pet2001_key_event(pet2001_t *pet, int platform_key, bool pressed)
             pet2001_set_matrix_key(pet, pet2001_shift_row(pet), PET_KEY_LEFT_SHIFT_COL,
                                    pressed, pressed ? PET_KEY_LATCH_FRAMES : 0);
         }
-        pet2001_set_graphics_game_alias(pet, platform_key, pressed);
         return;
     }
 }
@@ -1695,7 +2014,7 @@ void pet2001_write(pet2001_t *pet, uint16_t address, uint8_t value)
         pet->last_io_write_value = value;
         if (address >= 0xE810 && address <= 0xE81F) {
             uint8_t old_row = pet->selected_key_row;
-            pet2001_write_pia(&pet->pia1, address, value);
+            pet2001_write_pia1(pet, address, value);
             pet->selected_key_row = (uint8_t)(pet->pia1.port_a & 0x0F);
             if (pet->selected_key_row != old_row) {
                 pet->key_row_changes++;
@@ -1704,7 +2023,7 @@ void pet2001_write(pet2001_t *pet, uint16_t address, uint8_t value)
                 pet->key_row_scan_mask |= (uint16_t)(1u << pet->selected_key_row);
             }
         } else if (address >= 0xE820 && address <= 0xE82F) {
-            pet2001_write_pia(&pet->pia2, address, value);
+            pet2001_write_pia2(pet, address, value);
         } else if (address >= 0xE840 && address <= 0xE84F) {
             pet2001_write_via(pet, address, value);
         }

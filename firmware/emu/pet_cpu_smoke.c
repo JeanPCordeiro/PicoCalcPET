@@ -111,14 +111,6 @@ int main(void)
             fprintf(stderr, "PET PRG load failed\n");
             return 1;
         }
-        pet2001_key_event(&pet, 'a', true);
-        pet2001_key_event(&pet, '4', true);
-        pet2001_key_event(&pet, '6', true);
-        if ((pet.key_matrix[4] & 0xC1) != 0xC1) {
-            fprintf(stderr, "PET PRG graphics-keyboard aliases failed: %02X\n",
-                    pet.key_matrix[4]);
-            return 1;
-        }
         if (!pet2001_save_prg(&pet, "/tmp/pet_cpu_smoke_saved.prg")) {
             fprintf(stderr, "PET PRG save failed: %s\n", pet.last_error);
             return 1;
@@ -155,9 +147,18 @@ int main(void)
         const char *d64_path = "/tmp/pet_cpu_smoke.d64";
 
         remove(d64_path);
-        setenv("PICOCALC_PET_D64", d64_path, 1);
         pet2001_init(&pet);
         pet.roms_loaded = true;
+        pet.basic_rom_size = 0x3000;
+        pet.keyboard_layout = PET2001_KEYBOARD_BUSINESS;
+        if (pet.cbm_disk_mounted[0] || pet.cbm_disk_mounted[1]) {
+            fprintf(stderr, "PET D64 should start with no mounted disks\n");
+            return 1;
+        }
+        if (!pet2001_mount_disk(&pet, 0, d64_path)) {
+            fprintf(stderr, "PET D64 mount failed: %s\n", pet.last_error);
+            return 1;
+        }
         pet.cpu.sp = 0xFD;
         pet.ram[0x01FE] = 0x34;
         pet.ram[0x01FF] = 0x12;
@@ -215,29 +216,33 @@ int main(void)
             return 1;
         }
 
-        pet.ram[0x0401] = 0;
-        pet.ram[0x0402] = 0;
-        pet.ram[0x0200] = 'T';
-        pet.ram[0x0201] = 'E';
-        pet.ram[0x0202] = 'S';
-        pet.ram[0x0203] = 'T';
-        pet.ram[0x00D1] = 4;
-        pet.ram[0x00D3] = 0x60;
-        pet.ram[0x00D4] = 8;
-        pet.ram[0x00DA] = 0x00;
-        pet.ram[0x00DB] = 0x02;
-        pet.cpu.sp = 0xFB;
-        pet.ram[0x01FC] = 0x73;
-        pet.ram[0x01FD] = 0xF3;
-        pet.ram[0x01FE] = 0x17;
-        pet.ram[0x01FF] = 0xF4;
         pet.cpu.pc = 0xF4A5;
-        if (!pet2001_kernal_trap(&pet) ||
-            (pet.cpu.p & P_CARRY) != 0 ||
-            pet.cpu.pc != 0xF418 ||
-            pet.ram[0x0401] != 0x11 ||
-            pet.ram[0x0402] != 0x22) {
-            fprintf(stderr, "PET BASIC4 D64 open trap failed: %s\n", pet.last_error);
+        if (pet2001_kernal_trap(&pet)) {
+            fprintf(stderr, "PET BASIC4 F4A5 trap should be handled by ROM\n");
+            return 1;
+        }
+
+        pet.cbm_filename[0] = 'R';
+        pet.cbm_filename[1] = 'E';
+        pet.cbm_filename[2] = 'L';
+        pet.cbm_filename[3] = 'O';
+        pet.cbm_filename[4] = '\0';
+        pet.cbm_filename_len = 4;
+        pet.cbm_device = 8;
+        pet.cbm_secondary = 0;
+        pet.ram[0x002C] = 0x01;
+        pet.ram[0x002D] = 0x08;
+        pet.ram[0x0801] = 0x33;
+        pet.ram[0x0802] = 0x44;
+        pet.cpu.sp = 0xFD;
+        pet.ram[0x01FE] = 0x34;
+        pet.ram[0x01FF] = 0x12;
+        pet.cpu.pc = 0xFFD8;
+        pet.cpu.a = 0x2C;
+        pet.cpu.x = 0x03;
+        pet.cpu.y = 0x08;
+        if (!pet2001_kernal_trap(&pet) || (pet.cpu.p & P_CARRY) != 0) {
+            fprintf(stderr, "PET D64 relocation SAVE trap failed: %s\n", pet.last_error);
             return 1;
         }
     }

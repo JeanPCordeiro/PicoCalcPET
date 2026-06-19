@@ -6,7 +6,7 @@
 enum {
     PET_FRONTEND_COLS = 40,
     PET_FRONTEND_ROWS = 25,
-    PET_FRONTEND_STATUS_LINES = 3
+    PET_FRONTEND_STATUS_LINES = 4
 };
 
 void pet_frontend_init(void);

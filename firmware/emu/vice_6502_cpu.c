@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "6510core.h"
+#include "maincpu.h"
 
 enum cpu_int {
     IK_NONE = 0,
@@ -178,6 +179,7 @@ uint32_t vice_6502_step(pet2001_t *pet, uint32_t cycle_budget)
         int bank_start = 0;
         int bank_limit = 0;
 
+        maincpu_clk = (CLOCK)pet->cycles_executed + clk;
         if (pet2001_kernal_trap(pet)) {
             clk += 6;
             continue;
@@ -201,9 +203,9 @@ uint32_t vice_6502_step(pet2001_t *pet, uint32_t cycle_budget)
 #define LXA_LOG_LEVEL 0
 #define STATIC_ASSERT(x) typedef char static_assertion_##__LINE__[(x) ? 1 : -1]
 #define LOAD(addr) pet2001_read(pet, (uint16_t)(addr))
-#define STORE(addr, value) pet2001_write(pet, (uint16_t)(addr), (uint8_t)(value))
+#define STORE(addr, value) do { maincpu_clk = (CLOCK)pet->cycles_executed + CLK; pet2001_write(pet, (uint16_t)(addr), (uint8_t)(value)); } while (0)
 #define LOAD_ZERO(addr) pet2001_read(pet, (uint16_t)((addr) & 0xff))
-#define STORE_ZERO(addr, value) pet2001_write(pet, (uint16_t)((addr) & 0xff), (uint8_t)(value))
+#define STORE_ZERO(addr, value) do { maincpu_clk = (CLOCK)pet->cycles_executed + CLK; pet2001_write(pet, (uint16_t)((addr) & 0xff), (uint8_t)(value)); } while (0)
 #define LOAD_DUMMY(addr) LOAD(addr)
 #define STORE_DUMMY(addr, value) ((void)LOAD(addr), (void)(value))
 #define LOAD_ZERO_DUMMY(addr) LOAD_ZERO(addr)

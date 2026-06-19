@@ -10,12 +10,23 @@ add_library(vice_pet_reference INTERFACE)
 target_include_directories(vice_pet_reference INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/compat/vice
     ${VICE_SRC_DIR}
+    ${VICE_SRC_DIR}/core/rtc
+    ${VICE_SRC_DIR}/drive
+    ${VICE_SRC_DIR}/parallel
     ${VICE_SRC_DIR}/pet
+    ${VICE_SRC_DIR}/serial
 )
 
 add_library(pet_core STATIC
+    compat/vice/vice_shims.c
     emu/pet2001.c
     emu/vice_6502_cpu.c
+    ${VICE_SRC_DIR}/cbmdos.c
+    ${VICE_SRC_DIR}/parallel/parallel.c
+    ${VICE_SRC_DIR}/parallel/parallel-trap.c
+    ${VICE_SRC_DIR}/pet/petsound.c
+    ${VICE_SRC_DIR}/vdrive/vdrive-dir.c
+    ${VICE_SRC_DIR}/vdrive/vdrive-iec.c
 )
 
 target_include_directories(pet_core PUBLIC
@@ -41,6 +52,7 @@ if(PICOCALC_PLATFORM)
     pico_generate_pio_header(pet_frontend ${PICOCALC_AUDIO_PIO})
 
     target_sources(pet_frontend PRIVATE
+        audio/sample_audio.c
         assets/generated/pet2001_logo.c
         platform/platform_picocalc.c
         platform/platform_file_picocalc.c

@@ -18,9 +18,12 @@ typedef struct {
     size_t sample_count;
     size_t position;
     uint32_t pwm_period;
+    picocalc_sample_audio_stream_fn stream_callback;
+    void *stream_user_data;
     bool loop;
     bool playing;
     bool timer_active;
+    bool streaming;
 } picocalc_sample_audio_state_t;
 
 static PIO picocalc_sample_audio_pio = pio0;
@@ -104,8 +107,24 @@ static bool picocalc_sample_audio_timer_callback(repeating_timer_t *timer)
     uint32_t duty;
 
     (void)timer;
-    if (!picocalc_sample_audio_state.playing ||
-        picocalc_sample_audio_state.samples == NULL ||
+    if (!picocalc_sample_audio_state.playing) {
+        picocalc_sample_audio_state.timer_active = false;
+        return false;
+    }
+
+    if (picocalc_sample_audio_state.streaming) {
+        if (picocalc_sample_audio_state.stream_callback == NULL) {
+            sample = 128;
+        } else {
+            sample = picocalc_sample_audio_state
+                         .stream_callback(picocalc_sample_audio_state.stream_user_data);
+        }
+        duty = ((uint32_t)sample * picocalc_sample_audio_state.pwm_period) / 255u;
+        picocalc_sample_audio_put(duty);
+        return true;
+    }
+
+    if (picocalc_sample_audio_state.samples == NULL ||
         picocalc_sample_audio_state.sample_count == 0) {
         picocalc_sample_audio_state.timer_active = false;
         return false;
@@ -157,6 +176,40 @@ void picocalc_sample_audio_play(const uint8_t *samples, size_t sample_count,
     picocalc_sample_audio_state.position = 0;
     picocalc_sample_audio_state.loop = loop;
     picocalc_sample_audio_state.playing = true;
+    picocalc_sample_audio_state.streaming = false;
+    picocalc_sample_audio_state.stream_callback = NULL;
+    picocalc_sample_audio_state.stream_user_data = NULL;
+
+    picocalc_sample_audio_start_pwm();
+    picocalc_sample_audio_state.timer_active =
+        add_repeating_timer_us(-(int64_t)(1000000u / sample_rate),
+                               picocalc_sample_audio_timer_callback,
+                               NULL, &picocalc_sample_audio_timer);
+    if (!picocalc_sample_audio_state.timer_active) {
+        picocalc_sample_audio_stop();
+    }
+}
+
+void picocalc_sample_audio_stream(picocalc_sample_audio_stream_fn callback,
+                                  void *user_data, uint32_t sample_rate)
+{
+    if (callback == NULL || sample_rate == 0) {
+        picocalc_sample_audio_stop();
+        return;
+    }
+
+    picocalc_sample_audio_stop();
+    audio_stop();
+    picocalc_sample_audio_init();
+
+    picocalc_sample_audio_state.samples = NULL;
+    picocalc_sample_audio_state.sample_count = 0;
+    picocalc_sample_audio_state.position = 0;
+    picocalc_sample_audio_state.loop = true;
+    picocalc_sample_audio_state.streaming = true;
+    picocalc_sample_audio_state.stream_callback = callback;
+    picocalc_sample_audio_state.stream_user_data = user_data;
+    picocalc_sample_audio_state.playing = true;
 
     picocalc_sample_audio_start_pwm();
     picocalc_sample_audio_state.timer_active =
@@ -178,6 +231,9 @@ void picocalc_sample_audio_stop(void)
     picocalc_sample_audio_state.samples = NULL;
     picocalc_sample_audio_state.sample_count = 0;
     picocalc_sample_audio_state.position = 0;
+    picocalc_sample_audio_state.streaming = false;
+    picocalc_sample_audio_state.stream_callback = NULL;
+    picocalc_sample_audio_state.stream_user_data = NULL;
     if (picocalc_sample_audio_initialised) {
         picocalc_sample_audio_stop_sms();
     }

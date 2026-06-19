@@ -174,7 +174,8 @@ int platform_list_disk_images(const char *dir_path, platform_disk_image_t *image
     while ((entry = readdir(dir)) != NULL) {
         const char *dot = strrchr(entry->d_name, '.');
 
-        if (dot == NULL || strcasecmp(dot, ".prg") != 0) {
+        if (dot == NULL ||
+            (strcasecmp(dot, ".prg") != 0 && strcasecmp(dot, ".d64") != 0)) {
             continue;
         }
         if (count < max_images) {

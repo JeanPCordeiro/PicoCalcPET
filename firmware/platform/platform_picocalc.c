@@ -452,7 +452,7 @@ static int picocalc_ascii_tolower(int ch)
     return ch;
 }
 
-static bool picocalc_pet_program_extension_allowed(const char *name)
+static bool picocalc_pet_file_extension_allowed(const char *name)
 {
     const char *dot;
     char ext[5];
@@ -472,7 +472,7 @@ static bool picocalc_pet_program_extension_allowed(const char *name)
     }
     ext[4] = '\0';
 
-    return strcmp(ext, ".prg") == 0;
+    return strcmp(ext, ".prg") == 0 || strcmp(ext, ".d64") == 0;
 }
 
 static int picocalc_file_compare(const void *left, const void *right)
@@ -526,7 +526,7 @@ int platform_list_disk_images(const char *dir_path, platform_disk_image_t *image
 
     while (fat32_dir_read(&dir, &entry) == FAT32_OK && entry.filename[0] != '\0') {
         if ((entry.attr & FAT32_ATTR_DIRECTORY) == 0 &&
-            picocalc_pet_program_extension_allowed(entry.filename)) {
+            picocalc_pet_file_extension_allowed(entry.filename)) {
             if (count < max_images) {
                 strncpy(images[count].name, entry.filename, PLATFORM_DISK_IMAGE_NAME_MAX - 1);
                 images[count].name[PLATFORM_DISK_IMAGE_NAME_MAX - 1] = '\0';

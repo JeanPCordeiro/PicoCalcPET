@@ -58,6 +58,48 @@ static void clear_row(int row)
     }
 }
 
+static void pet_frontend_function_help(void)
+{
+    pet_frontend_status_line(0, "F1 DBG  F2 KBD  F3 PRG  F4 SAVE  F5 D64");
+}
+
+static const char *pet_frontend_leaf_name(const char *path)
+{
+    const char *cursor;
+    const char *leaf;
+
+    if (path == NULL || path[0] == '\0') {
+        return "none";
+    }
+
+    leaf = path;
+    for (cursor = path; *cursor != '\0'; ++cursor) {
+        if (*cursor == '/' || *cursor == '\\') {
+            leaf = cursor + 1;
+        }
+    }
+    return leaf[0] != '\0' ? leaf : path;
+}
+
+static void pet_frontend_disk_status_line(const pet2001_t *pet)
+{
+    char line[PET_FRONTEND_COLS + 1];
+    const char *d0 = "none";
+    const char *d1 = "none";
+
+    if (pet != NULL) {
+        if (pet->cbm_disk_mounted[0]) {
+            d0 = pet_frontend_leaf_name(pet->cbm_disk_path[0]);
+        }
+        if (pet->cbm_disk_mounted[1]) {
+            d1 = pet_frontend_leaf_name(pet->cbm_disk_path[1]);
+        }
+    }
+
+    snprintf(line, sizeof(line), "D0:%.16s D1:%.16s", d0, d1);
+    pet_frontend_status_line(1, line);
+}
+
 void pet_frontend_init(void)
 {
     platform_screen_configure(PET_FRONTEND_COLS, PET_FRONTEND_ROWS);
@@ -131,9 +173,10 @@ void pet_frontend_show_boot_banner(void)
     pet_frontend_clear();
     pet_frontend_write_centered(1, "PicoCalc PET 2001");
     pet_frontend_write_centered(3, "Commodore PET emulator");
-    pet_frontend_status_line(0, "PET2001 1.00MHz ROM:probe RAM:32K");
-    pet_frontend_status_line(1, "KBD:ready TAPE:none PRG:none");
-    pet_frontend_status_line(2, "F1=DBG F2=KBD F3=PRG F4=SAVE");
+    pet_frontend_function_help();
+    pet_frontend_disk_status_line(NULL);
+    pet_frontend_status_line(2, "PET2001 1.00MHz ROM:probe RAM:32K");
+    pet_frontend_status_line(3, "KBD:ready TAPE:none PRG:none");
     pet_frontend_flush();
 }
 
@@ -186,41 +229,44 @@ void pet_frontend_render_video(pet2001_t *pet)
 void pet_frontend_refresh_status(const pet2001_t *pet, const char *message)
 {
     char line[PET_FRONTEND_COLS + 1];
+    const char *detail = message;
+
+    pet_frontend_function_help();
 
     snprintf(line, sizeof(line), "PET2001 ROM:%s RAM:32K",
              pet != NULL && pet->roms_loaded ? "running" : "probe");
-    pet_frontend_status_line(0, line);
+    pet_frontend_disk_status_line(pet);
+    pet_frontend_status_line(2, line);
 
-    pet_frontend_status_line(1, "KBD:ready TAPE:none PRG:none");
-    pet_frontend_status_line(2, message != NULL ? message : "F1=DBG F2=KBD F3=PRG F4=SAVE");
+    if (pet != NULL && pet->last_error[0] != '\0' &&
+        strncmp(pet->last_error, "D64", 3) == 0) {
+        detail = pet->last_error;
+    }
+
+    pet_frontend_status_line(3, detail != NULL ? detail : "KBD:ready TAPE:none");
 }
 
 void pet_frontend_refresh_debug_status(const pet2001_t *pet)
 {
     char line[PET_FRONTEND_COLS + 1];
 
-    snprintf(line, sizeof(line), "PET PC:%04X C:%lu V:%lu",
+    pet_frontend_function_help();
+
+    snprintf(line, sizeof(line), "PC:%04X L:%lu D:%lu ST:%02X",
              pet != NULL ? pet->pc : 0,
-             pet != NULL ? (unsigned long)(pet->cycles_executed / 1000u) : 0UL,
-             pet != NULL ? (unsigned long)pet->video_writes : 0UL);
-    pet_frontend_status_line(0, line);
+             pet != NULL ? (unsigned long)pet->cbm_load_attempts : 0UL,
+             pet != NULL ? (unsigned long)pet->cbm_directory_loads : 0UL,
+             pet != NULL ? (unsigned int)pet->ram[0x0096] : 0U);
+    pet_frontend_disk_status_line(pet);
+    pet_frontend_status_line(2, line);
 
-    snprintf(line, sizeof(line), "IO R:%lu W:%lu KR:%X S:%03X",
-             pet != NULL ? (unsigned long)pet->io_reads : 0UL,
-             pet != NULL ? (unsigned long)pet->io_writes : 0UL,
-             pet != NULL ? (unsigned int)(pet->selected_key_row & 0x0F) : 0U,
-             pet != NULL ? (unsigned int)(pet->key_row_scan_mask & 0x03FF) : 0U);
-    pet_frontend_status_line(1, line);
-
-    if (pet != NULL && (pet->last_io_read_addr != 0 || pet->last_io_write_addr != 0)) {
-        snprintf(line, sizeof(line), "LR:%04X=%02X LW:%04X=%02X F:%lu",
-                 pet->last_io_read_addr,
-                 pet->last_io_read_value,
-                 pet->last_io_write_addr,
-                 pet->last_io_write_value,
-                 (unsigned long)pet->frames_executed);
-        pet_frontend_status_line(2, line);
-    } else {
-        pet_frontend_status_line(2, "debug active");
-    }
+    snprintf(line, sizeof(line), "D1:%02X D3:%02X D4:%02X B:%02X%02X E:%02X%02X",
+             pet != NULL ? (unsigned int)pet->ram[0x00D1] : 0U,
+             pet != NULL ? (unsigned int)pet->ram[0x00D3] : 0U,
+             pet != NULL ? (unsigned int)pet->ram[0x00D4] : 0U,
+             pet != NULL ? (unsigned int)pet->ram[0x0029] : 0U,
+             pet != NULL ? (unsigned int)pet->ram[0x0028] : 0U,
+             pet != NULL ? (unsigned int)pet->ram[0x002B] : 0U,
+             pet != NULL ? (unsigned int)pet->ram[0x002A] : 0U);
+    pet_frontend_status_line(3, line);
 }
