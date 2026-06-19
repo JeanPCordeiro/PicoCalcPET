@@ -46,6 +46,11 @@ enum {
 #define PET_VIA_ACR_SR_CONTROL 0x1Cu
 #define PET_VIA_ACR_SR_OUT_FREE_T2 0x10u
 #define PET_VIA_ACR_SR_OUT_T2 0x14u
+#define PET_VIA_ACR_T1_FREE_RUN 0x40u
+#define PET_VIA_ACR_T2_COUNTPB6 0x20u
+#define PET_VIA_IM_IRQ 0x80u
+#define PET_VIA_IM_T1 0x40u
+#define PET_VIA_IM_T2 0x20u
 
 typedef struct {
     int key;
@@ -427,6 +432,75 @@ static bool pet2001_via_sound_active(uint8_t acr, uint8_t t2ll)
     return (sr_control != PET_VIA_ACR_SR_OUT_FREE_T2 &&
             sr_control != PET_VIA_ACR_SR_OUT_T2) ||
            t2ll != 0;
+}
+
+static void pet2001_via_refresh_irq(pet2001_t *pet)
+{
+    if ((pet->via.reg[VIA_IFR] & pet->via.reg[VIA_IER] & 0x7Fu) != 0) {
+        pet->via.reg[VIA_IFR] |= PET_VIA_IM_IRQ;
+    } else {
+        pet->via.reg[VIA_IFR] &= (uint8_t)~PET_VIA_IM_IRQ;
+    }
+}
+
+static uint16_t pet2001_via_counter_value(uint16_t latch, uint64_t start_clock)
+{
+    uint64_t elapsed = maincpu_clk >= start_clock ? maincpu_clk - start_clock : 0;
+
+    if (elapsed > (uint64_t)latch) {
+        return 0xFFFFu;
+    }
+    return (uint16_t)(latch - elapsed);
+}
+
+static void pet2001_via_update_timers(pet2001_t *pet)
+{
+    if (pet->via_t1_running) {
+        uint64_t period = (uint64_t)pet->via_t1_latch + 2u;
+
+        if (maincpu_clk >= pet->via_t1_start_clock + period) {
+            pet->via.reg[VIA_IFR] |= PET_VIA_IM_T1;
+            if (pet->via_t1_free_run && period != 0) {
+                uint64_t elapsed = maincpu_clk - pet->via_t1_start_clock;
+                uint64_t periods = elapsed / period;
+
+                if (periods == 0) {
+                    periods = 1;
+                }
+                pet->via_t1_start_clock += periods * period;
+            } else {
+                pet->via_t1_running = false;
+            }
+        }
+    }
+
+    if (pet->via_t2_running) {
+        uint64_t period = (uint64_t)pet->via_t2_latch + 2u;
+
+        if (maincpu_clk >= pet->via_t2_start_clock + period) {
+            pet->via.reg[VIA_IFR] |= PET_VIA_IM_T2;
+            pet->via_t2_running = false;
+        }
+    }
+    pet2001_via_refresh_irq(pet);
+}
+
+static uint16_t pet2001_via_t1_counter(pet2001_t *pet)
+{
+    pet2001_via_update_timers(pet);
+    return pet->via_t1_running
+               ? pet2001_via_counter_value(pet->via_t1_latch, pet->via_t1_start_clock)
+               : ((uint16_t)pet->via.reg[VIA_T1CL] |
+                  (uint16_t)((uint16_t)pet->via.reg[VIA_T1CH] << 8));
+}
+
+static uint16_t pet2001_via_t2_counter(pet2001_t *pet)
+{
+    pet2001_via_update_timers(pet);
+    return pet->via_t2_running
+               ? pet2001_via_counter_value(pet->via_t2_latch, pet->via_t2_start_clock)
+               : ((uint16_t)pet->via.reg[VIA_T2CL] |
+                  (uint16_t)((uint16_t)pet->via.reg[VIA_T2CH] << 8));
 }
 
 static void pet2001_store_word(pet2001_t *pet, uint16_t address, uint16_t value)
@@ -1370,6 +1444,9 @@ static void pet2001_write_pia2(pet2001_t *pet, uint16_t address, uint8_t value)
 static uint8_t pet2001_read_via(pet2001_t *pet, uint16_t address)
 {
     uint8_t reg = (uint8_t)(address & 0x0F);
+    uint16_t counter;
+
+    pet2001_via_update_timers(pet);
 
     switch (reg) {
     case VIA_ORB:
@@ -1395,6 +1472,22 @@ static uint8_t pet2001_read_via(pet2001_t *pet, uint16_t address)
     case VIA_ORA_NO_HANDSHAKE:
         return (uint8_t)((0xFF & (uint8_t)~pet->via.reg[VIA_DDRA]) |
                          (pet->via.reg[VIA_ORA] & pet->via.reg[VIA_DDRA]));
+    case VIA_T1CL:
+        counter = pet2001_via_t1_counter(pet);
+        pet->via.reg[VIA_IFR] &= (uint8_t)~PET_VIA_IM_T1;
+        pet2001_via_refresh_irq(pet);
+        return (uint8_t)(counter & 0xFF);
+    case VIA_T1CH:
+        counter = pet2001_via_t1_counter(pet);
+        return (uint8_t)(counter >> 8);
+    case VIA_T2CL:
+        counter = pet2001_via_t2_counter(pet);
+        pet->via.reg[VIA_IFR] &= (uint8_t)~PET_VIA_IM_T2;
+        pet2001_via_refresh_irq(pet);
+        return (uint8_t)(counter & 0xFF);
+    case VIA_T2CH:
+        counter = pet2001_via_t2_counter(pet);
+        return (uint8_t)(counter >> 8);
     case VIA_IFR:
         return pet->via.reg[VIA_IFR];
     case VIA_IER:
@@ -1423,12 +1516,51 @@ static void pet2001_write_via(pet2001_t *pet, uint16_t address, uint8_t value)
         parallel_cpu_set_nrfd((uint8_t)((pet->via.reg[VIA_ORB] & 0x02u) ? 0 : 1));
         parallel_cpu_set_atn((uint8_t)((pet->via.reg[VIA_ORB] & 0x04u) ? 0 : 1));
         break;
+    case VIA_T1CL:
+    case VIA_T1LL:
+        pet->via.reg[VIA_T1LL] = value;
+        pet->via.reg[VIA_T1CL] = value;
+        pet->via_t1_latch = (uint16_t)value |
+                            (uint16_t)((uint16_t)pet->via.reg[VIA_T1LH] << 8);
+        break;
+    case VIA_T1CH:
+        pet->via.reg[VIA_T1LH] = value;
+        pet->via.reg[VIA_T1CH] = value;
+        pet->via_t1_latch = (uint16_t)pet->via.reg[VIA_T1LL] |
+                            (uint16_t)((uint16_t)value << 8);
+        pet->via_t1_start_clock = maincpu_clk;
+        pet->via_t1_running = true;
+        pet->via_t1_free_run = (pet->via.reg[VIA_ACR] & PET_VIA_ACR_T1_FREE_RUN) != 0;
+        pet->via.reg[VIA_IFR] &= (uint8_t)~PET_VIA_IM_T1;
+        pet2001_via_refresh_irq(pet);
+        break;
+    case VIA_T1LH:
+        pet->via.reg[VIA_T1LH] = value;
+        pet->via_t1_latch = (uint16_t)pet->via.reg[VIA_T1LL] |
+                            (uint16_t)((uint16_t)value << 8);
+        pet->via.reg[VIA_IFR] &= (uint8_t)~PET_VIA_IM_T1;
+        pet2001_via_refresh_irq(pet);
+        break;
     case VIA_T2CL:
         pet->via.reg[VIA_T2CL] = value;
+        pet->via_t2_latch = (uint16_t)value |
+                            (uint16_t)((uint16_t)pet->via.reg[VIA_T2CH] << 8);
         petsound_store_onoff(pet2001_via_sound_active(pet->via.reg[VIA_ACR], value));
+        break;
+    case VIA_T2CH:
+        pet->via.reg[VIA_T2CH] = value;
+        pet->via_t2_latch = (uint16_t)pet->via.reg[VIA_T2CL] |
+                            (uint16_t)((uint16_t)value << 8);
+        if ((pet->via.reg[VIA_ACR] & PET_VIA_ACR_T2_COUNTPB6) == 0) {
+            pet->via_t2_start_clock = maincpu_clk;
+            pet->via_t2_running = true;
+        }
+        pet->via.reg[VIA_IFR] &= (uint8_t)~PET_VIA_IM_T2;
+        pet2001_via_refresh_irq(pet);
         break;
     case VIA_ACR:
         pet->via.reg[VIA_ACR] = value;
+        pet->via_t1_free_run = (value & PET_VIA_ACR_T1_FREE_RUN) != 0;
         petsound_store_onoff(pet2001_via_sound_active(value, pet->via.reg[VIA_T2CL]));
         break;
     case VIA_PCR:
@@ -1437,6 +1569,7 @@ static void pet2001_write_via(pet2001_t *pet, uint16_t address, uint8_t value)
         break;
     case VIA_IFR:
         pet->via.reg[VIA_IFR] &= (uint8_t)~value;
+        pet2001_via_refresh_irq(pet);
         break;
     case VIA_IER:
         if (value & 0x80) {
@@ -1444,6 +1577,7 @@ static void pet2001_write_via(pet2001_t *pet, uint16_t address, uint8_t value)
         } else {
             pet->via.reg[VIA_IER] &= (uint8_t)~(value & 0x7F);
         }
+        pet2001_via_refresh_irq(pet);
         break;
     default:
         pet->via.reg[reg] = value;
@@ -1806,6 +1940,13 @@ void pet2001_reset(pet2001_t *pet)
     pet->frames_executed = 0;
     pet->cpu.sp = 0xFF;
     pet->cpu.p = P_INTERRUPT | P_UNUSED;
+    pet->via_t1_start_clock = 0;
+    pet->via_t2_start_clock = 0;
+    pet->via_t1_latch = 0;
+    pet->via_t2_latch = 0;
+    pet->via_t1_running = false;
+    pet->via_t1_free_run = false;
+    pet->via_t2_running = false;
     maincpu_clk = 0;
     picocalc_vice_petsound_reset(0);
     pet->pc = (uint16_t)pet->kernal_rom[0x0FFC] |
@@ -1814,6 +1955,15 @@ void pet2001_reset(pet2001_t *pet)
         pet->pc = 0xF000;
     }
     MOS6510_REGS_SET_PC(&pet->cpu, pet->pc);
+}
+
+bool pet2001_irq_asserted(pet2001_t *pet)
+{
+    if (pet == NULL) {
+        return false;
+    }
+    pet2001_via_update_timers(pet);
+    return (pet->via.reg[VIA_IFR] & PET_VIA_IM_IRQ) != 0;
 }
 
 void pet2001_run_frame(pet2001_t *pet)

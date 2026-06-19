@@ -69,6 +69,22 @@ int main(void)
         return 1;
     }
 
+    pet2001_write(&pet, 0xE84E, 0xC0); /* enable T1 IRQ */
+    pet2001_write(&pet, 0xE844, 0x04);
+    pet2001_write(&pet, 0xE845, 0x00);
+    pet2001_step_cycles(&pet, 16);
+    if ((pet2001_read(&pet, 0xE84D) & 0xC0) != 0xC0 ||
+        !pet2001_irq_asserted(&pet)) {
+        fprintf(stderr, "PET VIA T1 IRQ failed: IFR=%02X\n", pet2001_read(&pet, 0xE84D));
+        return 1;
+    }
+    (void)pet2001_read(&pet, 0xE844);
+    if ((pet2001_read(&pet, 0xE84D) & 0xC0) != 0x00 ||
+        pet2001_irq_asserted(&pet)) {
+        fprintf(stderr, "PET VIA T1 IRQ clear failed: IFR=%02X\n", pet2001_read(&pet, 0xE84D));
+        return 1;
+    }
+
     pet2001_key_event(&pet, 'A', true);
     if ((pet.key_matrix[4] & 0x01) == 0 || (pet.key_matrix[8] & 0x01) == 0) {
         fprintf(stderr, "PET keyboard matrix latch failed\n");

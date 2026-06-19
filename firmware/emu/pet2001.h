@@ -70,6 +70,10 @@ typedef struct pet2001_t {
     uint8_t cbm_device;
     uint8_t cbm_secondary;
     uint32_t cycles_executed;
+    uint64_t via_t1_start_clock;
+    uint64_t via_t2_start_clock;
+    uint16_t via_t1_latch;
+    uint16_t via_t2_latch;
     uint32_t io_reads;
     uint32_t io_writes;
     uint32_t video_writes;
@@ -92,6 +96,9 @@ typedef struct pet2001_t {
     int cpu_rmw_flag;
     bool retrace_signal;
     bool roms_loaded;
+    bool via_t1_running;
+    bool via_t1_free_run;
+    bool via_t2_running;
     pet2001_keyboard_layout_t keyboard_layout;
     char last_error[96];
     pet2001_rom_paths_t rom_paths;
@@ -113,5 +120,6 @@ void pet2001_toggle_keyboard_layout(pet2001_t *pet);
 const char *pet2001_keyboard_layout_name(const pet2001_t *pet);
 uint8_t pet2001_read(pet2001_t *pet, uint16_t address);
 void pet2001_write(pet2001_t *pet, uint16_t address, uint8_t value);
+bool pet2001_irq_asserted(pet2001_t *pet);
 
 #endif

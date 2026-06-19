@@ -12,6 +12,7 @@
 
 #ifdef PICOCALC_PLATFORM
 #include "audio/sample_audio.h"
+#include "pico/time.h"
 #include "picocalc_vice_petsound.h"
 #endif
 
@@ -513,6 +514,9 @@ static void show_missing_rom_screen(const pet2001_rom_paths_t *paths)
 static void run_pet_loop(pet2001_t *pet)
 {
     uint32_t frame = 0;
+#ifdef PICOCALC_PLATFORM
+    absolute_time_t next_frame_time = get_absolute_time();
+#endif
 
     if (pet == NULL) {
         return;
@@ -568,6 +572,15 @@ static void run_pet_loop(pet2001_t *pet)
         }
         pet_frontend_flush();
         frame++;
+
+#ifdef PICOCALC_PLATFORM
+        next_frame_time = delayed_by_us(next_frame_time, PICOCALC_PET_FRAME_CYCLES);
+        if (absolute_time_diff_us(get_absolute_time(), next_frame_time) < -50000) {
+            next_frame_time = get_absolute_time();
+        } else {
+            sleep_until(next_frame_time);
+        }
+#endif
 
 #ifndef PICOCALC_PLATFORM
         if (frame >= 60) {
