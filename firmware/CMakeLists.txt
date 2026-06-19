@@ -18,10 +18,12 @@ target_include_directories(vice_pet_reference INTERFACE
 )
 
 add_library(pet_core STATIC
+    compat/vice/picocalc_vice_via_sound.c
     compat/vice/vice_shims.c
     emu/pet2001.c
     emu/vice_6502_cpu.c
     ${VICE_SRC_DIR}/cbmdos.c
+    ${VICE_SRC_DIR}/core/viacore.c
     ${VICE_SRC_DIR}/parallel/parallel.c
     ${VICE_SRC_DIR}/parallel/parallel-trap.c
     ${VICE_SRC_DIR}/pet/petsound.c

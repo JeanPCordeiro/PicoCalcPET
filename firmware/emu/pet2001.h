@@ -104,12 +104,17 @@ typedef struct pet2001_t {
     pet2001_rom_paths_t rom_paths;
 } pet2001_t;
 
+typedef void (*pet2001_cycle_slice_fn)(pet2001_t *pet, void *user_data);
+
 bool pet2001_init(pet2001_t *pet);
 bool pet2001_load_roms(pet2001_t *pet, const pet2001_rom_paths_t *paths);
 bool pet2001_load_prg(pet2001_t *pet, const char *path);
 bool pet2001_save_prg(pet2001_t *pet, const char *path);
 void pet2001_reset(pet2001_t *pet);
 void pet2001_run_frame(pet2001_t *pet);
+void pet2001_run_frame_sliced(pet2001_t *pet, uint32_t slice_cycles,
+                              pet2001_cycle_slice_fn slice_callback,
+                              void *user_data);
 void pet2001_step_cycles(pet2001_t *pet, uint32_t cycles);
 void pet2001_key_event(pet2001_t *pet, int platform_key, bool pressed);
 bool pet2001_queue_text(pet2001_t *pet, const char *text);

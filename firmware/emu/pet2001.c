@@ -13,8 +13,8 @@
 #include "maincpu.h"
 #include "parallel.h"
 #include "parallel-trap.h"
-#include "petsound.h"
 #include "picocalc_vice_petsound.h"
+#include "picocalc_vice_via_sound.h"
 #include "vdrive/vdrive.h"
 #include "vdrive/vdrive-iec.h"
 
@@ -43,9 +43,6 @@ enum {
     PET_SOUND_SAMPLE_RATE = 22050
 };
 
-#define PET_VIA_ACR_SR_CONTROL 0x1Cu
-#define PET_VIA_ACR_SR_OUT_FREE_T2 0x10u
-#define PET_VIA_ACR_SR_OUT_T2 0x14u
 #define PET_VIA_ACR_T1_FREE_RUN 0x40u
 #define PET_VIA_ACR_T2_COUNTPB6 0x20u
 #define PET_VIA_IM_IRQ 0x80u
@@ -423,15 +420,6 @@ static bool pet2001_uses_basic1_pointers(const pet2001_t *pet)
 
     return pet->basic_rom_size == 0x2000 &&
            pet->keyboard_layout == PET2001_KEYBOARD_GRAPHICS;
-}
-
-static bool pet2001_via_sound_active(uint8_t acr, uint8_t t2ll)
-{
-    uint8_t sr_control = (uint8_t)(acr & PET_VIA_ACR_SR_CONTROL);
-
-    return (sr_control != PET_VIA_ACR_SR_OUT_FREE_T2 &&
-            sr_control != PET_VIA_ACR_SR_OUT_T2) ||
-           t2ll != 0;
 }
 
 static void pet2001_via_refresh_irq(pet2001_t *pet)
@@ -1545,12 +1533,13 @@ static void pet2001_write_via(pet2001_t *pet, uint16_t address, uint8_t value)
         pet->via.reg[VIA_T2CL] = value;
         pet->via_t2_latch = (uint16_t)value |
                             (uint16_t)((uint16_t)pet->via.reg[VIA_T2CH] << 8);
-        petsound_store_onoff(pet2001_via_sound_active(pet->via.reg[VIA_ACR], value));
+        picocalc_vice_via_sound_store(reg, value);
         break;
     case VIA_T2CH:
         pet->via.reg[VIA_T2CH] = value;
         pet->via_t2_latch = (uint16_t)pet->via.reg[VIA_T2CL] |
                             (uint16_t)((uint16_t)value << 8);
+        picocalc_vice_via_sound_store(reg, value);
         if ((pet->via.reg[VIA_ACR] & PET_VIA_ACR_T2_COUNTPB6) == 0) {
             pet->via_t2_start_clock = maincpu_clk;
             pet->via_t2_running = true;
@@ -1561,11 +1550,17 @@ static void pet2001_write_via(pet2001_t *pet, uint16_t address, uint8_t value)
     case VIA_ACR:
         pet->via.reg[VIA_ACR] = value;
         pet->via_t1_free_run = (value & PET_VIA_ACR_T1_FREE_RUN) != 0;
-        petsound_store_onoff(pet2001_via_sound_active(value, pet->via.reg[VIA_T2CL]));
+        picocalc_vice_via_sound_store(reg, value);
         break;
     case VIA_PCR:
         pet->via.reg[VIA_PCR] = value;
-        petsound_store_manual((value & 0xE0u) == 0xE0u, maincpu_clk);
+        picocalc_vice_via_sound_store(reg, value);
+        break;
+    case VIA_SR:
+        pet->via.reg[VIA_SR] = value;
+        pet->via.reg[VIA_IFR] &= (uint8_t)~0x04u;
+        pet2001_via_refresh_irq(pet);
+        picocalc_vice_via_sound_store(reg, value);
         break;
     case VIA_IFR:
         pet->via.reg[VIA_IFR] &= (uint8_t)~value;
@@ -1599,6 +1594,7 @@ bool pet2001_init(pet2001_t *pet)
     pet->keyboard_layout = PET2001_KEYBOARD_GRAPHICS;
     pet->last_error[0] = '\0';
     picocalc_vice_petsound_init(PET_SOUND_SAMPLE_RATE, PET_CLOCK_HZ);
+    picocalc_vice_via_sound_init(&pet->cpu_rmw_flag);
     pet2001_reset_io(pet);
     return true;
 }
@@ -1948,6 +1944,8 @@ void pet2001_reset(pet2001_t *pet)
     pet->via_t1_free_run = false;
     pet->via_t2_running = false;
     maincpu_clk = 0;
+    picocalc_vice_via_sound_init(&pet->cpu_rmw_flag);
+    picocalc_vice_via_sound_reset(0);
     picocalc_vice_petsound_reset(0);
     pet->pc = (uint16_t)pet->kernal_rom[0x0FFC] |
               (uint16_t)((uint16_t)pet->kernal_rom[0x0FFD] << 8);
@@ -1968,8 +1966,18 @@ bool pet2001_irq_asserted(pet2001_t *pet)
 
 void pet2001_run_frame(pet2001_t *pet)
 {
+    pet2001_run_frame_sliced(pet, 16667, NULL, NULL);
+}
+
+void pet2001_run_frame_sliced(pet2001_t *pet, uint32_t slice_cycles,
+                              pet2001_cycle_slice_fn slice_callback,
+                              void *user_data)
+{
     if (pet == NULL) {
         return;
+    }
+    if (slice_cycles == 0) {
+        slice_cycles = 16667;
     }
 
     pet->frames_executed++;
@@ -1984,7 +1992,19 @@ void pet2001_run_frame(pet2001_t *pet)
         pet2001_key_event(pet, key, true);
         pet->typeahead_wait_frames = PET_KEY_LATCH_FRAMES + 2u;
     }
-    pet2001_step_cycles(pet, 16667);
+    {
+        uint32_t remaining = 16667;
+
+        while (remaining > 0) {
+            uint32_t step = remaining < slice_cycles ? remaining : slice_cycles;
+
+            pet2001_step_cycles(pet, step);
+            if (slice_callback != NULL) {
+                slice_callback(pet, user_data);
+            }
+            remaining -= step;
+        }
+    }
     pet2001_release_expired_keys(pet);
 }
 
@@ -1997,6 +2017,7 @@ void pet2001_step_cycles(pet2001_t *pet, uint32_t cycles)
     if (pet->roms_loaded) {
         pet->cycles_executed += vice_6502_step(pet, cycles);
         maincpu_clk = pet->cycles_executed;
+        picocalc_vice_via_sound_run_until(maincpu_clk);
     }
     pet->pc = (uint16_t)MOS6510_REGS_GET_PC(&pet->cpu);
 }

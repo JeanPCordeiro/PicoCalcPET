@@ -5,14 +5,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "alarm.h"
 #include "diskimage.h"
 #include "drive.h"
 #include "ieee.h"
+#include "interrupt.h"
 #include "lib.h"
 #include "log.h"
+#include "monitor.h"
 #include "picocalc_vice_petsound.h"
 #include "platform/platform_file.h"
 #include "serial.h"
+#include "snapshot.h"
 #include "sound.h"
 #include "vdrive/vdrive.h"
 #include "vdrive/vdrive-iec.h"
@@ -122,6 +126,287 @@ void drive_cpu_execute_all(CLOCK clk_value)
     (void)clk_value;
 }
 
+alarm_context_t *alarm_context_new(const char *name)
+{
+    alarm_context_t *context = lib_malloc(sizeof(*context));
+
+    if (context != NULL) {
+        alarm_context_init(context, name);
+    }
+    return context;
+}
+
+void alarm_context_init(alarm_context_t *context, const char *name)
+{
+    if (context == NULL) {
+        return;
+    }
+    memset(context, 0, sizeof(*context));
+    context->name = lib_strdup(name != NULL ? name : "alarm");
+    context->next_pending_alarm_clk = CLOCK_MAX;
+    context->next_pending_alarm_idx = -1;
+}
+
+void alarm_context_destroy(alarm_context_t *context)
+{
+    alarm_t *alarm;
+    alarm_t *next;
+
+    if (context == NULL) {
+        return;
+    }
+    alarm = context->alarms;
+    while (alarm != NULL) {
+        next = alarm->next;
+        lib_free(alarm->name);
+        lib_free(alarm);
+        alarm = next;
+    }
+    lib_free(context->name);
+    lib_free(context);
+}
+
+void alarm_context_time_warp(alarm_context_t *context, CLOCK warp_amount,
+                             int warp_direction)
+{
+    unsigned int i;
+
+    if (context == NULL) {
+        return;
+    }
+    for (i = 0; i < context->num_pending_alarms; ++i) {
+        if (warp_direction < 0) {
+            context->pending_alarms[i].clk -= warp_amount;
+        } else {
+            context->pending_alarms[i].clk += warp_amount;
+        }
+    }
+    alarm_context_update_next_pending(context);
+}
+
+alarm_t *alarm_new(alarm_context_t *context, const char *name,
+                   alarm_callback_t callback, void *data)
+{
+    alarm_t *alarm;
+
+    if (context == NULL || callback == NULL) {
+        return NULL;
+    }
+    alarm = lib_malloc(sizeof(*alarm));
+    if (alarm == NULL) {
+        return NULL;
+    }
+    memset(alarm, 0, sizeof(*alarm));
+    alarm->name = lib_strdup(name != NULL ? name : "alarm");
+    alarm->context = context;
+    alarm->callback = callback;
+    alarm->pending_idx = -1;
+    alarm->data = data;
+    alarm->next = context->alarms;
+    if (context->alarms != NULL) {
+        context->alarms->prev = alarm;
+    }
+    context->alarms = alarm;
+    return alarm;
+}
+
+void alarm_destroy(alarm_t *alarm)
+{
+    if (alarm == NULL) {
+        return;
+    }
+    alarm_unset(alarm);
+    if (alarm->prev != NULL) {
+        alarm->prev->next = alarm->next;
+    } else if (alarm->context != NULL) {
+        alarm->context->alarms = alarm->next;
+    }
+    if (alarm->next != NULL) {
+        alarm->next->prev = alarm->prev;
+    }
+    lib_free(alarm->name);
+    lib_free(alarm);
+}
+
+void alarm_unset(alarm_t *alarm)
+{
+    alarm_context_t *context;
+    int idx;
+    unsigned int last;
+
+    if (alarm == NULL || alarm->pending_idx < 0 || alarm->context == NULL) {
+        return;
+    }
+    context = alarm->context;
+    idx = alarm->pending_idx;
+    last = context->num_pending_alarms - 1u;
+    if ((unsigned int)idx != last) {
+        context->pending_alarms[idx] = context->pending_alarms[last];
+        context->pending_alarms[idx].alarm->pending_idx = idx;
+    }
+    context->num_pending_alarms--;
+    alarm->pending_idx = -1;
+    alarm_context_update_next_pending(context);
+}
+
+void alarm_log_too_many_alarms(void)
+{
+}
+
+void interrupt_log_wrong_nirq(void)
+{
+}
+
+void interrupt_log_wrong_nnmi(void)
+{
+}
+
+void interrupt_fixup_int_clk(interrupt_cpu_status_t *cs, CLOCK cpu_clk,
+                             CLOCK *int_clk)
+{
+    (void)cs;
+    if (int_clk != NULL) {
+        *int_clk = cpu_clk;
+    }
+}
+
+unsigned int interrupt_cpu_status_int_new(interrupt_cpu_status_t *cs,
+                                          const char *name)
+{
+    (void)name;
+    if (cs == NULL) {
+        return 0;
+    }
+    return cs->num_ints > 0 ? 0 : cs->num_ints++;
+}
+
+void interrupt_restore_irq(interrupt_cpu_status_t *cs, int int_num, int value)
+{
+    if (cs == NULL || int_num < 0 || (unsigned int)int_num >= cs->num_ints) {
+        return;
+    }
+    if (value) {
+        interrupt_set_irq(cs, (unsigned int)int_num, 1, maincpu_clk);
+    } else {
+        interrupt_set_irq(cs, (unsigned int)int_num, 0, maincpu_clk);
+    }
+}
+
+int interrupt_get_irq(interrupt_cpu_status_t *cs, int int_num)
+{
+    if (cs == NULL || int_num < 0 || (unsigned int)int_num >= cs->num_ints) {
+        return 0;
+    }
+    return (cs->pending_int[int_num] & IK_IRQ) != 0;
+}
+
+int mon_out(const char *fmt, ...)
+{
+    (void)fmt;
+    return 0;
+}
+
+int snapshot_module_write_byte(snapshot_module_t *m, uint8_t data)
+{
+    (void)m;
+    (void)data;
+    return -1;
+}
+
+int snapshot_module_write_word(snapshot_module_t *m, uint16_t data)
+{
+    (void)m;
+    (void)data;
+    return -1;
+}
+
+int snapshot_module_write_dword(snapshot_module_t *m, uint32_t data)
+{
+    (void)m;
+    (void)data;
+    return -1;
+}
+
+int snapshot_module_write_qword(snapshot_module_t *m, uint64_t data)
+{
+    (void)m;
+    (void)data;
+    return -1;
+}
+
+int snapshot_module_read_byte(snapshot_module_t *m, uint8_t *b_return)
+{
+    (void)m;
+    if (b_return != NULL) {
+        *b_return = 0;
+    }
+    return -1;
+}
+
+int snapshot_module_read_word(snapshot_module_t *m, uint16_t *w_return)
+{
+    (void)m;
+    if (w_return != NULL) {
+        *w_return = 0;
+    }
+    return -1;
+}
+
+int snapshot_module_read_qword(snapshot_module_t *m, uint64_t *qw_return)
+{
+    (void)m;
+    if (qw_return != NULL) {
+        *qw_return = 0;
+    }
+    return -1;
+}
+
+snapshot_module_t *snapshot_module_create(snapshot_t *s, const char *name,
+                                          uint8_t major_version,
+                                          uint8_t minor_version)
+{
+    (void)s;
+    (void)name;
+    (void)major_version;
+    (void)minor_version;
+    return NULL;
+}
+
+snapshot_module_t *snapshot_module_open(snapshot_t *s, const char *name,
+                                        uint8_t *major_version_return,
+                                        uint8_t *minor_version_return)
+{
+    (void)s;
+    (void)name;
+    if (major_version_return != NULL) {
+        *major_version_return = 0;
+    }
+    if (minor_version_return != NULL) {
+        *minor_version_return = 0;
+    }
+    return NULL;
+}
+
+int snapshot_module_close(snapshot_module_t *m)
+{
+    (void)m;
+    return -1;
+}
+
+void snapshot_set_error(int error)
+{
+    (void)error;
+}
+
+int snapshot_version_is_bigger(uint8_t major_version, uint8_t minor_version,
+                               uint8_t major_version_required,
+                               uint8_t minor_version_required)
+{
+    return major_version > major_version_required ||
+           (major_version == major_version_required &&
+            minor_version > minor_version_required);
+}
+
 int resources_get_int(const char *name, int *value)
 {
     if (value == NULL) {
@@ -193,7 +478,7 @@ uint8_t picocalc_vice_petsound_render_u8(void)
     }
     vice_pet_sound_chip->calculate_samples(&psid, &sample, 1,
                                            SOUND_OUTPUT_MONO, 1, &delta);
-    mixed = 128 + (sample >> 5);
+    mixed = 128 + (sample >> 2);
     if (mixed < 0) {
         mixed = 0;
     } else if (mixed > 255) {

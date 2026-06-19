@@ -24,16 +24,116 @@ extern const char *program_name;
 #define PICOCALC_PET_QUICK_SAVE_PATH PICOCALC_PET_PRG_DIR "/SAVED.PRG"
 #define PICOCALC_PET_FRAME_CYCLES 16667u
 #define PICOCALC_PET_SOUND_SAMPLE_RATE 22050u
+#define PICOCALC_PET_AUDIO_RING_SIZE 4096u
+#define PICOCALC_PET_AUDIO_LOW_WATER 256u
+#define PICOCALC_PET_AUDIO_CUSHION 512u
+#define PICOCALC_PET_AUDIO_RENDER_BATCH 128u
 #define PICOCALC_PET_FUNCTION_HELP "F1 DBG  F2 KBD  F3 PRG  F4 SAVE  F5 D64"
 
 static bool pet_debug_status;
 
 #ifdef PICOCALC_PLATFORM
+static volatile uint16_t pet_audio_read_index;
+static volatile uint16_t pet_audio_write_index;
+static uint8_t pet_audio_ring[PICOCALC_PET_AUDIO_RING_SIZE];
+static uint64_t pet_audio_sample_accum;
+static uint32_t pet_audio_last_cpu_clk;
+static uint8_t pet_audio_last_sample = 128;
+
+static uint16_t pet_audio_buffer_level(void)
+{
+    uint16_t read_index = pet_audio_read_index;
+    uint16_t write_index = pet_audio_write_index;
+
+    if (write_index >= read_index) {
+        return (uint16_t)(write_index - read_index);
+    }
+    return (uint16_t)(PICOCALC_PET_AUDIO_RING_SIZE - read_index +
+                      write_index);
+}
+
+static bool pet_audio_push_sample(uint8_t sample)
+{
+    uint16_t write_index = pet_audio_write_index;
+    uint16_t next_write =
+        (uint16_t)((write_index + 1u) % PICOCALC_PET_AUDIO_RING_SIZE);
+
+    if (next_write == pet_audio_read_index) {
+        return false;
+    }
+    pet_audio_ring[write_index] = sample;
+    pet_audio_write_index = next_write;
+    return true;
+}
+
 static uint8_t pet_audio_stream_sample(void *user_data)
 {
+    uint16_t read_index;
+    uint8_t sample;
+
     (void)user_data;
-    return picocalc_vice_petsound_render_u8();
+    read_index = pet_audio_read_index;
+    if (read_index == pet_audio_write_index) {
+        return pet_audio_last_sample;
+    }
+    sample = pet_audio_ring[read_index];
+    pet_audio_last_sample = sample;
+    pet_audio_read_index =
+        (uint16_t)((read_index + 1u) % PICOCALC_PET_AUDIO_RING_SIZE);
+    return sample;
 }
+
+static bool pet_audio_fill_samples(uint32_t samples)
+{
+    for (uint32_t i = 0; i < samples; ++i) {
+        if (!pet_audio_push_sample(picocalc_vice_petsound_render_u8())) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void pet_audio_service(uint32_t cpu_clk)
+{
+    uint32_t delta_cycles;
+    uint32_t samples;
+
+    delta_cycles = cpu_clk - pet_audio_last_cpu_clk;
+    pet_audio_last_cpu_clk = cpu_clk;
+    pet_audio_sample_accum +=
+        (uint64_t)delta_cycles * PICOCALC_PET_SOUND_SAMPLE_RATE;
+    samples = (uint32_t)(pet_audio_sample_accum / 1000000u);
+    pet_audio_sample_accum %= 1000000u;
+
+    while (samples > 0) {
+        uint32_t batch = samples < PICOCALC_PET_AUDIO_RENDER_BATCH
+                             ? samples
+                             : PICOCALC_PET_AUDIO_RENDER_BATCH;
+
+        if (!pet_audio_fill_samples(batch)) {
+            break;
+        }
+        samples -= batch;
+    }
+
+    if (pet_audio_buffer_level() < PICOCALC_PET_AUDIO_LOW_WATER) {
+        while (pet_audio_buffer_level() < PICOCALC_PET_AUDIO_CUSHION) {
+            if (!pet_audio_fill_samples(1)) {
+                break;
+            }
+        }
+    }
+}
+
+static void pet_audio_reset(uint32_t cpu_clk)
+{
+    pet_audio_read_index = 0;
+    pet_audio_write_index = 0;
+    pet_audio_sample_accum = 0;
+    pet_audio_last_cpu_clk = cpu_clk;
+    pet_audio_last_sample = 128;
+}
+
 #endif
 
 static void status_printf(const char *format, ...)
@@ -559,6 +659,9 @@ static void run_pet_loop(pet2001_t *pet)
         }
 
         pet2001_run_frame(pet);
+#ifdef PICOCALC_PLATFORM
+        pet_audio_service(pet->cycles_executed);
+#endif
         pet_frontend_render_video(pet);
 
         if ((frame & 0x03u) == 0) {
@@ -633,11 +736,15 @@ int main(int argc, char **argv)
 
     pet2001_reset(&pet);
 #ifdef PICOCALC_PLATFORM
-    picocalc_sample_audio_stream(pet_audio_stream_sample, NULL,
-                                 PICOCALC_PET_SOUND_SAMPLE_RATE);
+    pet_audio_reset(pet.cycles_executed);
 #endif
     pet_frontend_show_boot_stage("Running PET ROM...");
     pet2001_step_cycles(&pet, 250000);
+#ifdef PICOCALC_PLATFORM
+    pet_audio_service(pet.cycles_executed);
+    picocalc_sample_audio_stream(pet_audio_stream_sample, NULL,
+                                 PICOCALC_PET_SOUND_SAMPLE_RATE);
+#endif
     pet_frontend_render_video(&pet);
     if (pet.video_writes == 0) {
         pet_frontend_show_stub_screen(&pet);

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #include "pet2001.h"
+#include "picocalc_vice_petsound.h"
 
 int main(void)
 {
@@ -83,6 +84,24 @@ int main(void)
         pet2001_irq_asserted(&pet)) {
         fprintf(stderr, "PET VIA T1 IRQ clear failed: IFR=%02X\n", pet2001_read(&pet, 0xE84D));
         return 1;
+    }
+    pet2001_write(&pet, 0xE84B, 0x10);
+    pet2001_write(&pet, 0xE84A, 0x0F);
+    pet2001_step_cycles(&pet, 80);
+    {
+        int heard = 0;
+        pet2001_step_cycles(&pet, 4000);
+        for (int i = 0; i < 256; ++i) {
+            uint8_t sample = picocalc_vice_petsound_render_u8();
+            if (sample != 128) {
+                heard = 1;
+                break;
+            }
+        }
+        if (!heard) {
+            fprintf(stderr, "PET VIA sound stayed silent\n");
+            return 1;
+        }
     }
 
     pet2001_key_event(&pet, 'A', true);
